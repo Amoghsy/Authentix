@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual Environment
+deepfake_env/
+venv/
+env/
+.venv/
+
+# Env
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# =========================
+# ❌ IGNORE ALL DATA FILES
+# =========================
+
+backend/app/data/*
+backend/data/*
+
+# ✅ Keep folder structure
+!backend/app/data/.keep
+!backend/data/.keep
+
+# =========================
+
+# Models (keep these)
+# (DO NOT ignore .pkl since you need them)
+
+# IDE
+.vscode/
+.idea/
+
+# Node
+node_modules/
+dist/
+build/
+
+# FFmpeg
+ffmpeg/
