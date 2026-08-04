@@ -85,8 +85,12 @@ class Trainer:
         self.model.train()
         self.metric_tracker.reset()
         
+        if self.device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(self.device)
+            
         running_loss = 0.0
         total_samples = 0
+        total_grad_norm = 0.0
         start_time = time.time()
         
         # Using tqdm progress bar inside logging context
@@ -120,7 +124,8 @@ class Trainer:
             
             # Gradient clipping (unscales gradients first to prevent clipping scaled grads)
             self.scaler.unscale_(self.optimizer)
-            nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
+            grad_norm = nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
+            total_grad_norm += float(grad_norm)
             
             # Optimizer step
             self.scaler.step(self.optimizer)
@@ -135,29 +140,37 @@ class Trainer:
             pbar.set_postfix({"loss": f"{loss.item():.4f}"})
             
         epoch_time = time.time() - start_time
-        avg_loss = running_loss / total_samples
-        throughput = total_samples / epoch_time
+        avg_loss = running_loss / total_samples if total_samples > 0 else 0.0
+        throughput = total_samples / epoch_time if epoch_time > 0 else 0.0
+        avg_grad_norm = total_grad_norm / len(dataloader) if len(dataloader) > 0 else 0.0
         
         # Gather metrics
         epoch_metrics = self.metric_tracker.compute()
         epoch_metrics["loss"] = avg_loss
         epoch_metrics["duration_seconds"] = epoch_time
         epoch_metrics["throughput_images_per_sec"] = throughput
+        epoch_metrics["grad_norm"] = avg_grad_norm
         
         # Track GPU memory utilization if training on CUDA
         if self.device.type == "cuda":
             # PyTorch returns bytes; convert to megabytes
-            gpu_mem = torch.cuda.memory_allocated(self.device) / (1024 ** 2)
-            epoch_metrics["gpu_memory_mb"] = gpu_mem
+            gpu_mem_allocated = torch.cuda.max_memory_allocated(self.device) / (1024 ** 2)
+            gpu_mem_reserved = torch.cuda.max_memory_reserved(self.device) / (1024 ** 2)
+            epoch_metrics["gpu_memory_mb"] = gpu_mem_allocated  # compatibility
+            epoch_metrics["gpu_memory_allocated_mb"] = gpu_mem_allocated
+            epoch_metrics["gpu_memory_reserved_mb"] = gpu_mem_reserved
             logging.info(
                 f"Epoch {epoch} [Train] - Loss: {avg_loss:.4f} | Acc: {epoch_metrics['accuracy']:.4f} | "
-                f"Speed: {throughput:.1f} img/s | GPU Mem: {gpu_mem:.1f} MB | Time: {epoch_time:.2f}s"
+                f"Speed: {throughput:.1f} img/s | Grad Norm: {avg_grad_norm:.4f} | "
+                f"VRAM Allocated: {gpu_mem_allocated:.1f} MB | VRAM Reserved: {gpu_mem_reserved:.1f} MB | Time: {epoch_time:.2f}s"
             )
         else:
             epoch_metrics["gpu_memory_mb"] = 0.0
+            epoch_metrics["gpu_memory_allocated_mb"] = 0.0
+            epoch_metrics["gpu_memory_reserved_mb"] = 0.0
             logging.info(
                 f"Epoch {epoch} [Train] - Loss: {avg_loss:.4f} | Acc: {epoch_metrics['accuracy']:.4f} | "
-                f"Speed: {throughput:.1f} img/s | Time: {epoch_time:.2f}s"
+                f"Speed: {throughput:.1f} img/s | Grad Norm: {avg_grad_norm:.4f} | Time: {epoch_time:.2f}s"
             )
             
         return epoch_metrics

@@ -81,7 +81,12 @@ def plot_test_curves(y_true: np.ndarray, y_prob: np.ndarray, output_dir: Path) -
     logging.info(f"Saved evaluation curves to {output_dir}")
 
 
-def evaluate_test_set(config: AppConfig, checkpoint_path: Optional[Path] = None, is_dry_run: bool = False) -> Dict[str, Any]:
+def evaluate_test_set(
+    config: AppConfig, 
+    checkpoint_path: Optional[Path] = None, 
+    is_dry_run: bool = False,
+    use_tta: bool = True
+) -> Dict[str, Any]:
     """
     Loads model checkpoints, executes testing, prints scores, and plots curves.
     """
@@ -121,8 +126,50 @@ def evaluate_test_set(config: AppConfig, checkpoint_path: Optional[Path] = None,
     criterion = nn.CrossEntropyLoss()
     validator = Validator(model, criterion, device, config)
     
-    # 3. Validation Run
-    test_metrics = validator.validate(test_loader, epoch=None)
+    # 3. Validation Run (with optional Test-Time Augmentation)
+    if use_tta:
+        logging.info("Running Test Set Evaluation with Test-Time Augmentation (TTA) enabled...")
+        model.eval()
+        validator.metric_tracker.reset()
+        running_loss = 0.0
+        total_samples = 0
+        
+        with torch.no_grad():
+            for inputs, targets, _ in test_loader:
+                inputs = inputs.to(device, non_blocking=True)
+                targets = targets.to(device, non_blocking=True)
+                batch_size = inputs.size(0)
+                
+                # Forward pass on standard inputs
+                logits_orig = model(inputs)
+                probs_orig = torch.softmax(logits_orig, dim=1)
+                
+                # Forward pass on horizontally flipped inputs (dim 3 is width)
+                inputs_flipped = torch.flip(inputs, dims=[3])
+                logits_flipped = model(inputs_flipped)
+                probs_flipped = torch.softmax(logits_flipped, dim=1)
+                
+                # Average predictions
+                probs_avg = (probs_orig + probs_flipped) / 2.0
+                
+                # Convert averaged probabilities back to logit space (plus epsilon to avoid log(0))
+                eps = 1e-7
+                dummy_logits = torch.log(probs_avg + eps)
+                
+                # Compute batch loss
+                loss = criterion(dummy_logits, targets)
+                running_loss += loss.item() * batch_size
+                total_samples += batch_size
+                
+                validator.metric_tracker.update(dummy_logits, targets)
+                
+        test_metrics = validator.metric_tracker.compute()
+        test_metrics["loss"] = running_loss / total_samples
+        test_metrics["duration_seconds"] = 0.0
+        test_metrics["throughput_images_per_sec"] = 0.0
+    else:
+        logging.info("Running standard Test Set Evaluation (TTA disabled)...")
+        test_metrics = validator.validate(test_loader, epoch=None)
     
     # 4. Generate curves and confusion matrix outputs
     output_dir = config.paths.checkpoints_dir
@@ -178,6 +225,11 @@ def main() -> None:
         action="store_true",
         help="Run a quick end-to-end self-test/dry-run using limited mock data."
     )
+    parser.add_argument(
+        "--no-tta",
+        action="store_true",
+        help="Disable Test-Time Augmentation (TTA)."
+    )
     
     args = parser.parse_args()
     
@@ -187,7 +239,7 @@ def main() -> None:
         test_training = replace(default_config.training, batch_size=2, num_workers=0)
         test_config = replace(default_config, training=test_training)
         try:
-            evaluate_test_set(test_config, is_dry_run=True)
+            evaluate_test_set(test_config, is_dry_run=True, use_tta=not args.no_tta)
             # Clean up files created during dry-run validation
             output_dir = test_config.paths.checkpoints_dir
             for file_name in ["test_roc_curve.png", "test_pr_curve.png", "test_confusion_matrix.png"]:
@@ -204,13 +256,14 @@ def main() -> None:
     # Resolve overrides
     ckpt_path = Path(args.checkpoint_path) if args.checkpoint_path else None
     batch_size = args.batch_size if args.batch_size is not None else default_config.training.batch_size
+    use_tta = not args.no_tta
     
     from dataclasses import replace
     new_training = replace(default_config.training, batch_size=batch_size, num_workers=0)
     app_config = replace(default_config, training=new_training)
     
     setup_logging(app_config)
-    evaluate_test_set(app_config, ckpt_path, is_dry_run=False)
+    evaluate_test_set(app_config, ckpt_path, is_dry_run=False, use_tta=use_tta)
 
 
 if __name__ == "__main__":

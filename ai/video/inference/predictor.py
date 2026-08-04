@@ -44,17 +44,20 @@ class DeepfakePredictor:
         self,
         model_path: Path,
         config: AppConfig,
-        device: str = "cpu"
+        device: str = "cpu",
+        use_tta: bool = True
     ) -> None:
         """
         Args:
             model_path (Path): Path to .pth weights file or .onnx graph model.
             config (AppConfig): Root application configuration.
             device (str): Inference device ('cpu' or 'cuda').
+            use_tta (bool): Enable Test-Time Augmentation (TTA).
         """
         self.model_path = Path(model_path)
         self.config = config
         self.device = torch.device(device if torch.cuda.is_available() and device == "cuda" else "cpu")
+        self.use_tta = use_tta
         
         self.label_mapping = {0: "real", 1: "fake"}
         self.transform = get_val_transforms(config.pipeline.image_size)
@@ -129,13 +132,35 @@ class DeepfakePredictor:
             
             # Apply softmax
             exp_logits = np.exp(logits - np.max(logits, axis=1, keepdims=True))
-            probs = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
-            probs = probs[0] # shape (2,)
+            probs_orig = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
+            probs_orig = probs_orig[0] # shape (2,)
+            
+            if self.use_tta:
+                # Horizontally flip the input data along width axis (axis 3 of shape 1, 3, H, W)
+                input_flipped = np.flip(input_data, axis=3)
+                ort_inputs_flipped = {self.ort_session.get_inputs()[0].name: input_flipped}
+                ort_outs_flipped = self.ort_session.run(None, ort_inputs_flipped)
+                logits_flipped = ort_outs_flipped[0]
+                exp_logits_flipped = np.exp(logits_flipped - np.max(logits_flipped, axis=1, keepdims=True))
+                probs_flipped = exp_logits_flipped / np.sum(exp_logits_flipped, axis=1, keepdims=True)
+                probs_flipped = probs_flipped[0]
+                probs = (probs_orig + probs_flipped) / 2.0
+            else:
+                probs = probs_orig
         else:
             input_tensor = torch.from_numpy(input_data).to(self.device)
             with torch.no_grad():
                 logits = self.model(input_tensor)
-                probs = torch.softmax(logits, dim=1).cpu().numpy()[0]
+                probs_orig = torch.softmax(logits, dim=1).cpu().numpy()[0]
+                
+                if self.use_tta:
+                    # Horizontally flip the input tensor along width dimension (dim 3)
+                    input_flipped = torch.flip(input_tensor, dims=[3])
+                    logits_flipped = self.model(input_flipped)
+                    probs_flipped = torch.softmax(logits_flipped, dim=1).cpu().numpy()[0]
+                    probs = (probs_orig + probs_flipped) / 2.0
+                else:
+                    probs = probs_orig
                 
         pred_idx = int(np.argmax(probs))
         pred_label = self.label_mapping[pred_idx]
@@ -219,6 +244,11 @@ def main() -> None:
         help="Execution device ('cpu' or 'cuda')."
     )
     parser.add_argument(
+        "--no-tta",
+        action="store_true",
+        help="Disable Test-Time Augmentation (TTA)."
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="Run a quick end-to-end self-test/dry-run using limited mock data."
@@ -250,7 +280,8 @@ def main() -> None:
             predictor = DeepfakePredictor(
                 model_path=dummy_ckpt_path,
                 config=default_config,
-                device="cpu"
+                device="cpu",
+                use_tta=not args.no_tta
             )
             
             # Predict on dummy image
@@ -276,7 +307,7 @@ def main() -> None:
         parser.error("the following arguments are required: --model-path")
         
     model_path = Path(args.model_path)
-    predictor = DeepfakePredictor(model_path, default_config, device=args.device)
+    predictor = DeepfakePredictor(model_path, default_config, device=args.device, use_tta=not args.no_tta)
     
     if args.image_path:
         img_path = Path(args.image_path)

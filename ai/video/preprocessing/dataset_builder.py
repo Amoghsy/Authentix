@@ -202,9 +202,72 @@ def build_split_dataset(config: AppConfig) -> Dict[str, Any]:
         logging.warning(f"Found {len(unknown_videos)} video directories with unknown labels: {unknown_videos}")
         # Add unknown videos to fake or log as skipped. Let's skip them to remain clean.
         
-    # 3. Perform class-wise stratified split at video level
-    real_train, real_val, real_test = split_class_videos(real_videos, config.split, config.random_seed)
-    fake_train, fake_val, fake_test = split_class_videos(fake_videos, config.split, config.random_seed)
+    # 3. Group by source actor ID and split to prevent identity leakage
+    import re
+    def get_source_actor_id(video_dir: Path) -> str:
+        # Match the first 3-digit numeric string in the folder name (source identity)
+        match = re.search(r"\d{3}", video_dir.name)
+        if match:
+            return match.group(0)
+        return video_dir.name
+        
+    actor_to_videos: Dict[str, List[Path]] = {}
+    for v_dir in all_video_dirs:
+        actor_id = get_source_actor_id(v_dir)
+        actor_to_videos.setdefault(actor_id, []).append(v_dir)
+        
+    all_actor_ids = sorted(list(actor_to_videos.keys()))
+    
+    # Shuffle unique actor IDs reproducibly
+    rng = random.Random(config.random_seed)
+    shuffled_actors = list(all_actor_ids)
+    rng.shuffle(shuffled_actors)
+    
+    n_actors = len(shuffled_actors)
+    n_train = max(1, int(round(n_actors * config.split.train)))
+    n_val = max(1, int(round(n_actors * config.split.val)))
+    if n_train + n_val >= n_actors:
+        n_train = max(1, n_actors - 2)
+        n_val = 1
+        
+    train_actors = set(shuffled_actors[:n_train])
+    val_actors = set(shuffled_actors[n_train:n_train + n_val])
+    test_actors = set(shuffled_actors[n_train + n_val:])
+    
+    real_train, real_val, real_test = [], [], []
+    fake_train, fake_val, fake_test = [], [], []
+    
+    for actor_id, v_dirs in actor_to_videos.items():
+        if actor_id in train_actors:
+            for v_dir in v_dirs:
+                label = determine_class_label(v_dir, face_crops_root)
+                if label == "real":
+                    real_train.append(v_dir)
+                elif label == "fake":
+                    fake_train.append(v_dir)
+        elif actor_id in val_actors:
+            for v_dir in v_dirs:
+                label = determine_class_label(v_dir, face_crops_root)
+                if label == "real":
+                    real_val.append(v_dir)
+                elif label == "fake":
+                    fake_val.append(v_dir)
+        else:
+            for v_dir in v_dirs:
+                label = determine_class_label(v_dir, face_crops_root)
+                if label == "real":
+                    real_test.append(v_dir)
+                elif label == "fake":
+                    fake_test.append(v_dir)
+                    
+    logging.info(
+        f"Group-based split statistics -\n"
+        f"  Total unique actor identities: {n_actors}\n"
+        f"  Train actors: {len(train_actors)} | Val actors: {len(val_actors)} | Test actors: {len(test_actors)}\n"
+        f"  Train: Real={len(real_train)} Fake={len(fake_train)}\n"
+        f"  Val:   Real={len(real_val)} Fake={len(fake_val)}\n"
+        f"  Test:  Real={len(real_test)} Fake={len(fake_test)}"
+    )
     
     # 4. Clear/Setup clean directories for final splits
     split_mappings = {

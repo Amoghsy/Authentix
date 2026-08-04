@@ -113,6 +113,73 @@ def plot_curves(history: List[Dict[str, Any]], output_dir: Path) -> None:
     logging.info(f"Loss/Accuracy curves saved to {output_dir}")
 
 
+def save_validation_plots(y_true: np.ndarray, y_prob: np.ndarray, cm: List[List[int]], output_dir: Path, epoch: int) -> None:
+    """
+    Generates and saves validation curves and confusion matrix for intermediate epochs.
+    """
+    from sklearn.metrics import roc_curve, auc, precision_recall_curve, average_precision_score
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 1. Confusion Matrix
+    cm_array = np.array(cm)
+    plt.figure(figsize=(6, 5))
+    plt.imshow(cm_array, interpolation="nearest", cmap=plt.cm.Blues)
+    plt.title(f"Epoch {epoch} - Val Confusion Matrix", fontsize=12, pad=10)
+    plt.colorbar()
+    classes = ["Real", "Fake"]
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes)
+    plt.yticks(tick_marks, classes)
+    
+    thresh = cm_array.max() / 2.0
+    for i in range(cm_array.shape[0]):
+        for j in range(cm_array.shape[1]):
+            plt.text(
+                j, i, format(cm_array[i, j], "d"),
+                horizontalalignment="center",
+                color="white" if cm_array[i, j] > thresh else "black"
+            )
+            
+    plt.ylabel("True label")
+    plt.xlabel("Predicted label")
+    plt.tight_layout()
+    plt.savefig(output_dir / "val_confusion_matrix.png", dpi=150)
+    plt.close()
+    
+    # 2. ROC Curve
+    fpr, tpr, _ = roc_curve(y_true, y_prob)
+    roc_auc = auc(fpr, tpr)
+    plt.figure(figsize=(6, 5))
+    plt.plot(fpr, tpr, color="darkorange", lw=2, label=f"ROC Curve (AUC = {roc_auc:.4f})")
+    plt.plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--")
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title(f"Epoch {epoch} - Val ROC Curve")
+    plt.legend(loc="lower right")
+    plt.grid(True, linestyle=":", alpha=0.6)
+    plt.tight_layout()
+    plt.savefig(output_dir / "val_roc_curve.png", dpi=150)
+    plt.close()
+    
+    # 3. Precision-Recall Curve
+    precision, recall, _ = precision_recall_curve(y_true, y_prob)
+    ap = average_precision_score(y_true, y_prob)
+    plt.figure(figsize=(6, 5))
+    plt.plot(recall, precision, color="green", lw=2, label=f"PR Curve (AP = {ap:.4f})")
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel("Recall")
+    plt.ylabel("Precision")
+    plt.title(f"Epoch {epoch} - Val Precision-Recall Curve")
+    plt.legend(loc="lower left")
+    plt.grid(True, linestyle=":", alpha=0.6)
+    plt.tight_layout()
+    plt.savefig(output_dir / "val_pr_curve.png", dpi=150)
+    plt.close()
+
+
 def run_training(config: AppConfig, resume: bool = False, is_dry_run: bool = False) -> None:
     """
     Coordinates progressive model training across Phase 1, Phase 2, and Phase 3.
@@ -136,12 +203,14 @@ def run_training(config: AppConfig, resume: bool = False, is_dry_run: bool = Fal
         train_dataset.samples = train_dataset.samples[:4]
         val_dataset.samples = val_dataset.samples[:2]
     
+    use_persistent = config.training.num_workers > 0
     train_loader = DataLoader(
         train_dataset,
         batch_size=config.training.batch_size,
         shuffle=True,
         num_workers=config.training.num_workers,
         pin_memory=(device.type == "cuda"),
+        persistent_workers=use_persistent,
         drop_last=True
     )
     val_loader = DataLoader(
@@ -150,22 +219,27 @@ def run_training(config: AppConfig, resume: bool = False, is_dry_run: bool = Fal
         shuffle=False,
         num_workers=config.training.num_workers,
         pin_memory=(device.type == "cuda"),
+        persistent_workers=use_persistent,
         drop_last=False
     )
     
     # 2. Compute Loss and Class Weights
+    label_smoothing = getattr(config.training, "label_smoothing", 0.0)
     if config.training.auto_class_weights:
         class_weights = compute_class_weights(train_dataset).to(device)
-        criterion = nn.CrossEntropyLoss(weight=class_weights)
+        criterion = nn.CrossEntropyLoss(weight=class_weights, label_smoothing=label_smoothing)
     else:
-        criterion = nn.CrossEntropyLoss()
+        criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         
     # 3. Instantiate model
     model = DeepfakeModel(dropout=config.training.dropout, pretrained=True).to(device)
     
     # Setup Callbacks
-    saver = CheckpointSaver(config.paths.checkpoints_dir, mode="min")
-    early_stopping = EarlyStopping(patience=config.training.early_stopping_patience, mode="min")
+    monitor_metric = getattr(config.training, "early_stopping_metric", "balanced_accuracy").lower()
+    monitor_mode = "min" if any(m in monitor_metric for m in ["loss", "error"]) else "max"
+    
+    saver = CheckpointSaver(config.paths.checkpoints_dir, mode=monitor_mode)
+    early_stopping = EarlyStopping(patience=config.training.early_stopping_patience, mode=monitor_mode)
     tb_logger = TensorBoardLogger(config.paths.checkpoints_dir / "runs" / datetime.now().strftime("%Y%m%d_%H%M%S"))
     
     history: List[Dict[str, Any]] = []
@@ -191,10 +265,24 @@ def run_training(config: AppConfig, resume: bool = False, is_dry_run: bool = Fal
                     history = json.load(f)
             # Synchronize best score inside saver
             if history:
-                saver.best_score = min(h["val_loss"] for h in history)
+                val_key = monitor_metric.replace("val_", "")
+                if f"val_{val_key}" in history[0]:
+                    history_key = f"val_{val_key}"
+                elif val_key in history[0]:
+                    history_key = val_key
+                else:
+                    history_key = "val_loss"
+                    
+                scores = [h[history_key] for h in history]
+                if monitor_mode == "min":
+                    best_idx = np.argmin(scores)
+                    saver.best_score = min(scores)
+                else:
+                    best_idx = np.argmax(scores)
+                    saver.best_score = max(scores)
+                    
                 early_stopping.best_score = saver.best_score
-                # Resume counter for early stopping
-                best_epoch = np.argmin([h["val_loss"] for h in history]) + 1
+                best_epoch = best_idx + 1
                 early_stopping.counter = len(history) - best_epoch
         except Exception as e:
             logging.error(f"Failed to resume checkpoint: {e}. Starting training from scratch.")
@@ -278,6 +366,12 @@ def run_training(config: AppConfig, resume: bool = False, is_dry_run: bool = Fal
         train_stats = trainer.train_epoch(train_loader, epoch)
         val_stats = validator.validate(val_loader, epoch)
         
+        # Generate epoch-level validation plots
+        plots_dir = config.paths.checkpoints_dir / "plots"
+        y_true = np.array(validator.metric_tracker.all_labels)
+        y_prob = np.array(validator.metric_tracker.all_probs)
+        save_validation_plots(y_true, y_prob, val_stats["confusion_matrix"], plots_dir, epoch)
+        
         # 7. Update scheduler
         curr_lr = opt.param_groups[0]["lr"]
         if sched is not None:
@@ -312,17 +406,20 @@ def run_training(config: AppConfig, resume: bool = False, is_dry_run: bool = Fal
             logging.error(f"Failed to write history file: {e}")
             
         # 9. Save Checkpoint
+        val_key = monitor_metric.replace("val_", "")
+        score = val_stats.get(val_key, val_stats.get("loss"))
+        
         saver.save(
             model=model,
             optimizer=opt,
             scheduler=sched,
             epoch=epoch,
             metrics=val_stats,
-            score=val_stats["loss"]
+            score=score
         )
         
         # 10. Check EarlyStopping
-        stop_training = early_stopping.step(val_stats["loss"])
+        stop_training = early_stopping.step(score)
         if stop_training:
             logging.warning(f"Early stopping triggered at epoch {epoch}. Terminating training loop.")
             break
@@ -333,6 +430,13 @@ def run_training(config: AppConfig, resume: bool = False, is_dry_run: bool = Fal
     # 11. Plot final training curves
     if history:
         plot_curves(history, config.paths.checkpoints_dir)
+        
+    # Restore best model weights upon completion of training run
+    best_pth = config.paths.checkpoints_dir / "best_model.pth"
+    if best_pth.exists():
+        logging.info(f"Restoring best model weights from {best_pth}")
+        checkpoint = torch.load(best_pth, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
         
     logging.info("Training pipeline completed successfully.")
 

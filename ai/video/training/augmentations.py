@@ -43,12 +43,10 @@ def get_train_transforms(image_size: Tuple[int, int]) -> A.Compose:
         # Horizontal flips (preserves face topology but adds variability)
         A.HorizontalFlip(p=0.5),
         
-        # Brightness, contrast, saturation, and hue adjustments
-        A.ColorJitter(
-            brightness=0.2, 
-            contrast=0.2, 
-            saturation=0.2, 
-            hue=0.1, 
+        # Slight brightness and contrast adjustments
+        A.RandomBrightnessContrast(
+            brightness_limit=0.1, 
+            contrast_limit=0.1, 
             p=0.5
         ),
         
@@ -61,6 +59,12 @@ def get_train_transforms(image_size: Tuple[int, int]) -> A.Compose:
         # Light Gaussian Blur (simulates lower resolution or camera out-of-focus)
         A.GaussianBlur(
             blur_limit=(3, 5), 
+            p=0.3
+        ),
+        
+        # Light sensor noise simulation
+        A.GaussNoise(
+            std_range=(0.01, 0.03), 
             p=0.3
         ),
         

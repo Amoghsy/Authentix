@@ -60,13 +60,15 @@ class TrainingConfig:
     lr_phase1: float = 1e-3             # Learning rate for classifier training
     lr_phase2: float = 1e-4             # Learning rate for block fine-tuning
     lr_phase3: float = 1e-5             # Learning rate for full fine-tuning
-    weight_decay: float = 1e-4
-    dropout: float = 0.2
+    weight_decay: float = 1e-3
+    dropout: float = 0.3
     num_workers: int = 4
     use_mixed_precision: bool = True
     auto_class_weights: bool = True
     lr_scheduler_type: str = "cosine"   # "cosine", "plateau", or "none"
     early_stopping_patience: int = 5
+    label_smoothing: float = 0.1
+    early_stopping_metric: str = "balanced_accuracy"
 
 
 @dataclass(frozen=True)

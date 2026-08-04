@@ -155,6 +155,11 @@ class CheckpointSaver:
         with open(meta_json_file, "w", encoding="utf-8") as f:
             json.dump(state_meta, f, indent=4)
             
+        # Save standalone optimizer and scheduler states as requested
+        torch.save(optimizer.state_dict(), self.checkpoints_dir / "optimizer.pt")
+        if scheduler is not None:
+            torch.save(scheduler.state_dict(), self.checkpoints_dir / "scheduler.pt")
+            
         if is_best:
             best_pth = self.checkpoints_dir / "best_model.pth"
             torch.save(checkpoint, best_pth)

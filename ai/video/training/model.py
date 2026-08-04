@@ -51,10 +51,11 @@ class DeepfakeModel(nn.Module):
         in_features = self.backbone.classifier[0].in_features # 576
         
         self.backbone.classifier = nn.Sequential(
-            nn.Linear(in_features, 1024),
+            nn.Dropout(p=dropout, inplace=False),
+            nn.Linear(in_features, 256),
             nn.Hardswish(),
-            nn.Dropout(p=dropout, inplace=True),
-            nn.Linear(1024, 2) # Binary classification (real, fake)
+            nn.Dropout(p=dropout, inplace=False),
+            nn.Linear(256, 2) # Binary classification (real, fake)
         )
         
         logging.info("Deepfake model successfully initialized with MobileNetV3-Small backbone.")
