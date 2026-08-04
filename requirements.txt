@@ -24,6 +24,7 @@ networkx==3.6.1
 numpy==2.5.1
 onnx==1.22.0
 onnxruntime==1.28.0
+onnxscript==0.7.1
 opencv-contrib-python==5.0.0.93
 opencv-python==5.0.0.93
 opencv-python-headless==5.0.0.93
@@ -45,6 +46,7 @@ six==1.17.0
 sounddevice==0.5.5
 stringzilla==5.0.7
 sympy==1.14.0
+tensorboard==2.21.0
 threadpoolctl==3.6.0
 torch==2.13.0
 torchaudio==2.11.0
