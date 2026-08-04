@@ -1,0 +1,8 @@
+{
+    "status": "SUCCESS",
+    "opset_version": 17,
+    "onnx_model_path": "D:\\Projects\\Hackathon\\Authentix\\exports\\audio_model.onnx",
+    "file_size_mb": 361.0,
+    "export_duration_seconds": 5.3127,
+    "timestamp": "2026-08-04 22:24:28"
+}

@@ -37,6 +37,10 @@ class AudioClassifier(nn.Module):
             num_labels=self.config.model.num_labels,
             ignore_mismatched_sizes=True  # Resets classification head if labels count changed
         )
+        
+        # Override configuration label mapping to match local mapping and prevent inference mismatch
+        self.model.config.id2label = {0: "real", 1: "fake"}
+        self.model.config.label2id = {"real": 0, "fake": 1}
 
     def forward(
         self,

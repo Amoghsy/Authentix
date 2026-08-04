@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 
+import re
 import sys
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -60,6 +61,11 @@ class DatasetBuilder:
         Returns:
             str: Original recording ID.
         """
+        match = re.match(r'^(file\d+)', filename, re.IGNORECASE)
+        if match:
+            return match.group(1).lower()
+        
+        # Fallback to original parsing if filename pattern differs
         base = filename.split(".wav")[0]
         base = base.split("_")[0]
         return base
@@ -151,6 +157,18 @@ class DatasetBuilder:
             List[Dict]: Comprehensive list of final split audio details for manifest generation.
         """
         self.logger.info("Copying processed files into target split directories.")
+        
+        # Clear existing split directories to prevent leftover files causing leakage
+        for split_name in ["train", "validation", "test"]:
+            split_dir = getattr(self.config, f"{split_name}_dir")
+            if split_dir.exists():
+                self.logger.info(f"Clearing split directory: {split_dir}")
+                shutil.rmtree(split_dir)
+            split_dir.mkdir(parents=True, exist_ok=True)
+            # Pre-create labels subfolders
+            (split_dir / "real").mkdir(parents=True, exist_ok=True)
+            (split_dir / "fake").mkdir(parents=True, exist_ok=True)
+
         final_manifest_records = []
 
         for split_name, files in splits.items():

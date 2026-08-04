@@ -1,0 +1,5 @@
+file_path,file_name,prediction,confidence,fake_probability,real_probability,latency_ms,status
+D:\Projects\Hackathon\Authentix\ai\audio\inference\sample_test_folder\file10005.mp3.wav_16k.wav_norm.wav_mono.wav_silence.wav_2sec.wav,file10005.mp3.wav_16k.wav_norm.wav_mono.wav_silence.wav_2sec.wav,Fake,0.9478,0.9478,0.0522,68.55,SUCCESS
+D:\Projects\Hackathon\Authentix\ai\audio\inference\sample_test_folder\file10009.mp3.wav_16k.wav_norm.wav_mono.wav_silence.wav_2sec.wav,file10009.mp3.wav_16k.wav_norm.wav_mono.wav_silence.wav_2sec.wav,Fake,0.9479,0.9479,0.0521,72.04,SUCCESS
+D:\Projects\Hackathon\Authentix\ai\audio\inference\sample_test_folder\file10009.wav_16k.wav_norm.wav_mono.wav_silence.wav_2sec.wav,file10009.wav_16k.wav_norm.wav_mono.wav_silence.wav_2sec.wav,Real,0.9649,0.0351,0.9649,67.38,SUCCESS
+D:\Projects\Hackathon\Authentix\ai\audio\inference\sample_test_folder\file10017.wav_16k.wav_norm.wav_mono.wav_silence.wav_2sec.wav,file10017.wav_16k.wav_norm.wav_mono.wav_silence.wav_2sec.wav,Real,0.9651,0.0349,0.9651,67.54,SUCCESS

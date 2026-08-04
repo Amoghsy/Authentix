@@ -1,0 +1,12 @@
+{
+    "timestamp": "2026-08-04 22:32:28",
+    "total_files": 4,
+    "successful_predictions": 4,
+    "failed_predictions": 0,
+    "real_classifications": 2,
+    "fake_classifications": 2,
+    "real_percentage": 50.0,
+    "fake_percentage": 50.0,
+    "average_latency_ms": 68.88,
+    "status": "SUCCESS"
+}
