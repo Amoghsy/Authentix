@@ -1,327 +1,188 @@
-"""
-predictor.py
+"""Model predictor execution module for video deepfake detection.
 
-This module contains the DeepfakePredictor class, which serves as the inference engine
-for video deepfake face crops. It supports loading both PyTorch (.pth) checkpoints
-and optimized ONNX (.onnx) runtime formats, processes single images, batches, or folders,
-and returns labels and confidence probabilities.
+This module initializes the ONNX Runtime session, manages inference pipelines
+for single video files, aggregates frame-level predictions to produce video-level
+probabilities, measures latency, and structures outputs matching the Fusion AI schema.
 """
 
-import argparse
 import logging
+import time
 from pathlib import Path
-import sys
-from typing import Dict, Any, List, Union
+from typing import Dict, Union
 
 import numpy as np
-from PIL import Image
-import torch
-import torchvision.transforms.functional as TF
+import onnxruntime as ort
 
-# Force stdout/stderr to use UTF-8 to prevent CP1252 encoding crashes on Windows
-if hasattr(sys.stdout, "reconfigure"):
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
+import sys
+# Configure path references to enable direct execution
+PROJECT_ROOT = str(Path(__file__).resolve().parents[3])
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
 
-# Insert project root to sys.path to allow executing the script directly
-project_root = str(Path(__file__).resolve().parents[3])
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-from ai.video.preprocessing.config import AppConfig, get_default_config, setup_logging
-from ai.video.training.augmentations import get_val_transforms
-from ai.video.training.model import DeepfakeModel
+from ai.video.inference.config import InferenceConfig
+from ai.video.inference.preprocessor import VideoPreprocessor
 
 
-class DeepfakePredictor:
-    """
-    Unified Inference Engine for Authentix Deepfake Detection.
-    Handles image loading, preprocessing, model execution, and prediction mapping.
-    """
-    def __init__(
-        self,
-        model_path: Path,
-        config: AppConfig,
-        device: str = "cpu",
-        use_tta: bool = True
-    ) -> None:
-        """
+class VideoPredictor:
+    """Loads ONNX models and executes deepfake detection on video files."""
+
+    def __init__(self, config: InferenceConfig):
+        """Initializes the VideoPredictor.
+
         Args:
-            model_path (Path): Path to .pth weights file or .onnx graph model.
-            config (AppConfig): Root application configuration.
-            device (str): Inference device ('cpu' or 'cuda').
-            use_tta (bool): Enable Test-Time Augmentation (TTA).
+            config: InferenceConfig instance.
         """
-        self.model_path = Path(model_path)
         self.config = config
-        self.device = torch.device(device if torch.cuda.is_available() and device == "cuda" else "cpu")
-        self.use_tta = use_tta
-        
-        self.label_mapping = {0: "real", 1: "fake"}
-        self.transform = get_val_transforms(config.pipeline.image_size)
-        
-        # Identify model format and load
-        if self.model_path.suffix.lower() == ".onnx":
-            self.mode = "onnx"
-            import onnxruntime as ort
-            logging.info(f"Loading ONNX model for inference from: {self.model_path}")
-            # Automatically choose CPU/CUDA providers for ONNX Runtime
-            providers = ["CPUExecutionProvider"]
-            if self.device.type == "cuda":
-                providers.insert(0, "CUDAExecutionProvider")
-            self.ort_session = ort.InferenceSession(str(self.model_path), providers=providers)
-            logging.info(f"ONNX model loaded successfully on providers: {self.ort_session.get_providers()}")
-        elif self.model_path.suffix.lower() in {".pth", ".pt"}:
-            self.mode = "pytorch"
-            logging.info(f"Loading PyTorch model for inference from: {self.model_path}")
-            self.model = DeepfakeModel(dropout=0.0, pretrained=False)
-            checkpoint = torch.load(self.model_path, map_location=self.device)
-            self.model.load_state_dict(checkpoint["model_state_dict"])
-            self.model.to(self.device)
-            self.model.eval()
-            logging.info("PyTorch model loaded and set to eval mode successfully.")
+        self.logger = logging.getLogger("video_inference.predictor")
+
+        # Validate configuration and verify model existence
+        self.config.validate()
+        self.config.create_directories()
+
+        self.preprocessor = VideoPreprocessor(self.config)
+        self.session = self._initialize_onnx_session()
+
+        # Input and output node names
+        self.input_name = self.session.get_inputs()[0].name
+        self.output_name = self.session.get_outputs()[0].name
+
+    def _initialize_onnx_session(self) -> ort.InferenceSession:
+        """Configures execution providers and loads the ONNX runtime model.
+
+        Returns:
+            ort.InferenceSession: Loaded ONNX session.
+        """
+        model_path = self.config.model_path
+        self.logger.info(f"Loading Video ONNX model for prediction: {model_path.resolve()}")
+
+        # Configure execution providers (fallback to CPU if CUDA is unavailable)
+        providers = ["CPUExecutionProvider"]
+        if self.config.onnx.device == "cuda" and "CUDAExecutionProvider" in ort.get_available_providers():
+            providers.insert(0, "CUDAExecutionProvider")
+            self.logger.info("ONNX Runtime configured with CUDA execution support.")
         else:
-            raise ValueError(f"Unsupported model extension: {self.model_path.suffix}. Must be .pth, .pt, or .onnx")
+            self.logger.info("ONNX Runtime configured with CPU execution support.")
 
-    def _preprocess_image(self, image_path: Path) -> np.ndarray:
-        """
-        Loads and preprocesses a single image.
-        
-        Returns:
-            np.ndarray: Preprocessed image tensor with shape (1, 3, H, W).
-        """
-        # Load image in RGB
-        image = Image.open(image_path).convert("RGB")
-        image_np = np.array(image)
-        
-        # Apply transforms (val pipeline uses resize & normalize)
-        augmented = self.transform(image=image_np)
-        img_tensor = augmented["image"] # Shape (3, H, W)
-        
-        # Convert to numpy and add batch dimension (1, 3, H, W)
-        return img_tensor.unsqueeze(0).numpy()
+        # Set session options
+        session_options = ort.SessionOptions()
+        session_options.intra_op_num_threads = self.config.onnx.intra_op_num_threads
+        session_options.inter_op_num_threads = self.config.onnx.inter_op_num_threads
 
-    def predict_image(self, image_path: Path) -> Dict[str, Any]:
-        """
-        Predicts label and probability for a single image crop.
-        
-        Args:
-            image_path (Path): Path to input crop.
-            
-        Returns:
-            Dict[str, Any]: Prediction dictionary containing label, confidence score, and probabilities.
-        """
         try:
-            input_data = self._preprocess_image(image_path)
+            session = ort.InferenceSession(
+                str(model_path),
+                sess_options=session_options,
+                providers=providers
+            )
+            return session
         except Exception as e:
-            logging.error(f"Failed to preprocess image at {image_path}: {e}")
-            return {
-                "label": "unknown",
-                "confidence": 0.0,
-                "probabilities": {"real": 0.5, "fake": 0.5},
-                "error": str(e)
-            }
-            
-        # Run inference
-        if self.mode == "onnx":
-            ort_inputs = {self.ort_session.get_inputs()[0].name: input_data}
-            ort_outs = self.ort_session.run(None, ort_inputs)
-            logits = ort_outs[0] # numpy array shape (1, 2)
-            
-            # Apply softmax
-            exp_logits = np.exp(logits - np.max(logits, axis=1, keepdims=True))
-            probs_orig = exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
-            probs_orig = probs_orig[0] # shape (2,)
-            
-            if self.use_tta:
-                # Horizontally flip the input data along width axis (axis 3 of shape 1, 3, H, W)
-                input_flipped = np.flip(input_data, axis=3)
-                ort_inputs_flipped = {self.ort_session.get_inputs()[0].name: input_flipped}
-                ort_outs_flipped = self.ort_session.run(None, ort_inputs_flipped)
-                logits_flipped = ort_outs_flipped[0]
-                exp_logits_flipped = np.exp(logits_flipped - np.max(logits_flipped, axis=1, keepdims=True))
-                probs_flipped = exp_logits_flipped / np.sum(exp_logits_flipped, axis=1, keepdims=True)
-                probs_flipped = probs_flipped[0]
-                probs = (probs_orig + probs_flipped) / 2.0
-            else:
-                probs = probs_orig
+            self.logger.error(f"Failed to initialize ONNX Runtime session: {e}")
+            raise RuntimeError(f"ONNX session initialization failed: {e}")
+
+    def predict(self, file_path: Union[str, Path]) -> Dict[str, Union[str, float, int]]:
+        """Runs end-to-end classification on a video file.
+
+        Args:
+            file_path: Path of the video file.
+
+        Returns:
+            Dict: Classification result matching Fusion AI Engine schema:
+                {
+                    "prediction": "Fake" | "Real",
+                    "confidence": float,
+                    "fake_probability": float,
+                    "real_probability": float,
+                    "frames_processed": int,
+                    "latency_ms": float
+                }
+        """
+        start_time = time.perf_counter()
+
+        # 1. Run preprocessing (extract batch of frames and timestamps)
+        try:
+            batch_tensor, frame_timestamps = self.preprocessor.preprocess(file_path)
+        except Exception as e:
+            self.logger.error(f"Preprocessing failed for {file_path}: {e}")
+            raise
+
+        frames_processed = batch_tensor.shape[0]
+
+        # 2. Run ONNX Inference (all frames in a single batch call)
+        onnx_inputs = {self.input_name: batch_tensor}
+        try:
+            onnx_outputs = self.session.run([self.output_name], onnx_inputs)
+            logits = onnx_outputs[0]  # Shape: [num_frames, 2]
+        except Exception as e:
+            self.logger.error(f"ONNX inference run failed: {e}")
+            raise RuntimeError(f"Inference execution failed: {e}")
+
+        # 3. Calculate Softmax probabilities on frame logits
+        exp_logits = np.exp(logits - np.max(logits, axis=-1, keepdims=True))
+        frame_probs = exp_logits / np.sum(exp_logits, axis=-1, keepdims=True)  # Shape: [num_frames, 2]
+
+        # 4. Aggregate frame probabilities (mean pooling)
+        video_probs = np.mean(frame_probs, axis=0)  # Shape: [2,]
+
+        real_prob = float(video_probs[0])
+        fake_prob = float(video_probs[1]) if len(video_probs) > 1 else 0.0
+
+        # 5. Classify based on confidence threshold
+        if fake_prob >= self.config.prediction.confidence_threshold:
+            prediction = "Fake"
+            confidence = fake_prob
         else:
-            input_tensor = torch.from_numpy(input_data).to(self.device)
-            with torch.no_grad():
-                logits = self.model(input_tensor)
-                probs_orig = torch.softmax(logits, dim=1).cpu().numpy()[0]
-                
-                if self.use_tta:
-                    # Horizontally flip the input tensor along width dimension (dim 3)
-                    input_flipped = torch.flip(input_tensor, dims=[3])
-                    logits_flipped = self.model(input_flipped)
-                    probs_flipped = torch.softmax(logits_flipped, dim=1).cpu().numpy()[0]
-                    probs = (probs_orig + probs_flipped) / 2.0
-                else:
-                    probs = probs_orig
-                
-        pred_idx = int(np.argmax(probs))
-        pred_label = self.label_mapping[pred_idx]
-        confidence = float(probs[pred_idx])
-        
-        return {
-            "label": pred_label,
-            "confidence": confidence,
-            "probabilities": {
-                "real": float(probs[0]),
-                "fake": float(probs[1])
-            }
+            prediction = "Real"
+            confidence = real_prob
+
+        # Measure latency in milliseconds
+        latency_ms = (time.perf_counter() - start_time) * 1000.0
+
+        result = {
+            "prediction": prediction,
+            "confidence": round(confidence, 4),
+            "fake_probability": round(fake_prob, 4),
+            "real_probability": round(real_prob, 4),
+            "frames_processed": frames_processed,
+            "latency_ms": round(latency_ms, 2)
         }
 
-    def predict_batch(self, image_paths: List[Path]) -> List[Dict[str, Any]]:
-        """
-        Runs batch prediction on a list of image paths.
-        
-        Args:
-            image_paths (List[Path]): List of absolute image paths.
-            
-        Returns:
-            List[Dict[str, Any]]: List of prediction dictionaries.
-        """
-        results = []
-        for path in image_paths:
-            results.append(self.predict_image(path))
-        return results
+        # 6. Generate visualizations if enabled
+        if self.config.visualization.enable_plots:
+            try:
+                from ai.video.inference.visualization import VideoInferenceVisualizer
+                visualizer = VideoInferenceVisualizer(self.config)
+                visualizer.generate_all_plots(
+                    video_name=Path(file_path).name,
+                    frame_timestamps=frame_timestamps,
+                    frame_probs=frame_probs,
+                    prediction=prediction,
+                    overall_confidence=confidence
+                )
+            except Exception as e:
+                self.logger.warning(f"Visualization generation failed for {Path(file_path).name}: {e}")
 
-    def predict_directory(self, dir_path: Path) -> List[Dict[str, Any]]:
-        """
-        Discovers all images recursively in a folder and runs predictions.
-        """
-        dir_path = Path(dir_path)
-        image_extensions = {".jpg", ".jpeg", ".png", ".webp"}
-        image_files = [
-            p for p in dir_path.rglob("*") 
-            if p.suffix.lower() in image_extensions
-        ]
-        
-        logging.info(f"Discovered {len(image_files)} images in folder: {dir_path}")
-        
-        predictions = []
-        for img_path in image_files:
-            pred = self.predict_image(img_path)
-            pred["image_path"] = str(img_path.resolve())
-            predictions.append(pred)
-            
-        return predictions
+        self.logger.debug(f"Prediction for {Path(file_path).name}: {result}")
+        return result
 
 
 def main() -> None:
-    """
-    CLI interface for running deepfake prediction.
-    """
-    default_config = get_default_config()
+    """CLI Entrypoint for running single video predictions."""
+    import argparse
+    import json
     
-    parser = argparse.ArgumentParser(
-        description="Authentix - Deepfake Video Crop Predictor"
-    )
-    parser.add_argument(
-        "--model-path",
-        required=False,
-        type=str,
-        help="Path to trained PyTorch (.pth) checkpoint or ONNX (.onnx) model file."
-    )
-    parser.add_argument(
-        "--image-path",
-        type=str,
-        help="Path to a single face crop image."
-    )
-    parser.add_argument(
-        "--dir-path",
-        type=str,
-        help="Path to directory containing face crops."
-    )
-    parser.add_argument(
-        "--device",
-        type=str,
-        default="cpu",
-        help="Execution device ('cpu' or 'cuda')."
-    )
-    parser.add_argument(
-        "--no-tta",
-        action="store_true",
-        help="Disable Test-Time Augmentation (TTA)."
-    )
-    parser.add_argument(
-        "--self-test",
-        action="store_true",
-        help="Run a quick end-to-end self-test/dry-run using limited mock data."
-    )
-    
+    parser = argparse.ArgumentParser(description="Run single-file video deepfake prediction.")
+    parser.add_argument("file_path", type=str, help="Path to the video file.")
     args = parser.parse_args()
-    
-    setup_logging(default_config)
-    
-    if args.self_test:
-        logging.info("Starting dry-run verification of predictor.py")
-        try:
-            # Create a dummy image
-            dummy_img_path = default_config.paths.checkpoints_dir / "test_crop.jpg"
-            dummy_img_path.parent.mkdir(parents=True, exist_ok=True)
-            
-            # Save a random image to disk
-            dummy_data = (np.random.rand(224, 224, 3) * 255).astype(np.uint8)
-            Image.fromarray(dummy_data).save(dummy_img_path)
-            
-            # Create a dummy weights checkpoint to load (dry-run mode test)
-            dummy_ckpt_path = default_config.paths.checkpoints_dir / "dummy_weights.pth"
-            dummy_model = DeepfakeModel(dropout=0.0, pretrained=False)
-            torch.save({
-                "model_state_dict": dummy_model.state_dict()
-            }, dummy_ckpt_path)
-            
-            # Initialize predictor on PyTorch dummy model
-            predictor = DeepfakePredictor(
-                model_path=dummy_ckpt_path,
-                config=default_config,
-                device="cpu",
-                use_tta=not args.no_tta
-            )
-            
-            # Predict on dummy image
-            res = predictor.predict_image(dummy_img_path)
-            logging.info(f"Mock Image prediction: {res}")
-            
-            assert "label" in res and "confidence" in res, "Prediction output structure is missing keys!"
-            assert res["label"] in {"real", "fake"}, f"Unknown predicted label output: {res['label']}"
-            
-            # Clean up files created
-            if dummy_img_path.exists():
-                dummy_img_path.unlink()
-            if dummy_ckpt_path.exists():
-                dummy_ckpt_path.unlink()
-            logging.info("Cleaned up mock files successfully.")
-            logging.info("predictor.py module verified successfully.")
-            sys.exit(0)
-        except Exception as e:
-            logging.error(f"Predictor verification failed: {e}")
-            sys.exit(1)
-            
-    if not args.model_path:
-        parser.error("the following arguments are required: --model-path")
-        
-    model_path = Path(args.model_path)
-    predictor = DeepfakePredictor(model_path, default_config, device=args.device, use_tta=not args.no_tta)
-    
-    if args.image_path:
-        img_path = Path(args.image_path)
-        res = predictor.predict_image(img_path)
-        logging.info(f"\nPrediction for {img_path.name}:")
-        logging.info(f"  Class Label: {res['label'].upper()}")
-        logging.info(f"  Confidence:  {res['confidence']*100:.2f}%")
-        logging.info(f"  Probabilities - Real: {res['probabilities']['real']:.4f} | Fake: {res['probabilities']['fake']:.4f}")
-        
-    if args.dir_path:
-        dir_path = Path(args.dir_path)
-        preds = predictor.predict_directory(dir_path)
-        for p in preds:
-            logging.info(f"Image: {Path(p['image_path']).name} -> Label: {p['label'].upper()} ({p['confidence']*100:.1f}%)")
+
+    config = InferenceConfig()
+    predictor = VideoPredictor(config)
+
+    try:
+        result = predictor.predict(args.file_path)
+        print(json.dumps(result, indent=4))
+    except Exception as e:
+        print(f"Prediction failed: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
