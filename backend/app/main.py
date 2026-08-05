@@ -62,15 +62,21 @@ async def lifespan(app: FastAPI):
                 "Inference endpoints will be unavailable until model files are provided."
             )
 
-        # 4. Create database tables if they don't exist yet (dev mode)
+        # 4. Create database tables if they don't exist yet (dev mode check)
         #    In production, use Alembic migrations instead.
-        from backend.app.database.session import engine
-        from backend.app.database.base import Base
-        import backend.app.database.models  # noqa: F401 — registers all ORM models
+        try:
+            from backend.app.database.session import engine
+            from backend.app.database.base import Base
+            import backend.app.database.models  # noqa: F401 — registers all ORM models
 
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("Database tables verified / created.")
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("Database tables verified / created.")
+        except Exception as db_err:
+            logger.warning(
+                f"Database tables verification skipped or failed: {db_err}. "
+                "Ensure Alembic migrations have run successfully."
+            )
 
         # 5. Warm up AI model sessions (skip gracefully if models are missing)
         try:

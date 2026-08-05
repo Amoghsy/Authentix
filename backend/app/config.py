@@ -57,8 +57,11 @@ class Settings(BaseModel):
     
     # Database Configurations
     DATABASE_URL: str = Field(
-        default_factory=lambda: os.getenv(
-            "DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/authentix"
+        default_factory=lambda: (
+            os.getenv("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/authentix")
+            .replace("postgres://", "postgresql+asyncpg://", 1)
+            .replace("postgresql://", "postgresql+asyncpg://", 1)
+            if os.getenv("DATABASE_URL") else "postgresql+asyncpg://postgres:postgres@localhost:5432/authentix"
         )
     )
     
