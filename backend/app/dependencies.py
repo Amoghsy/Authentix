@@ -110,15 +110,42 @@ def warm_up_services() -> None:
     to warm up ONNX Runtime sessions and prevent first-request latency spikes.
     """
     logger.info("Warming up backend AI model sessions...")
+    settings = get_settings()
+    
+    # Check video model existence
+    if not settings.VIDEO_MODEL_PATH.exists():
+        logger.warning(f"Video model file missing at {settings.VIDEO_MODEL_PATH}. Skipping video predictor warm-up.")
+    else:
+        try:
+            get_video_predictor()
+        except Exception as e:
+            logger.error(f"Failed to warm up video predictor: {e}")
+
+    # Check audio model existence
+    if not settings.AUDIO_MODEL_PATH.exists():
+        logger.warning(f"Audio model file missing at {settings.AUDIO_MODEL_PATH}. Skipping audio predictor warm-up.")
+    else:
+        try:
+            get_audio_predictor()
+        except Exception as e:
+            logger.error(f"Failed to warm up audio predictor: {e}")
+
+    # Check face landmarker task file existence to avoid blocking downloads on startup
+    if not settings.FACE_LANDMARKER_PATH.exists():
+        logger.warning(f"Face landmarker task file missing at {settings.FACE_LANDMARKER_PATH}. Skipping sync preprocessor warm-up.")
+    else:
+        try:
+            get_sync_preprocessor()
+        except Exception as e:
+            logger.error(f"Failed to warm up sync preprocessor: {e}")
+
+    # Initialize fusion predictor
     try:
-        get_video_predictor()
-        get_audio_predictor()
-        get_sync_preprocessor()
         get_fusion_predictor()
-        logger.info("All backend AI model sessions warmed up successfully.")
     except Exception as e:
-        logger.critical(f"Failed to warm up AI model sessions: {e}", exc_info=True)
-        raise e
+        logger.error(f"Failed to warm up fusion predictor: {e}")
+        
+    logger.info("Backend services warm-up completed.")
 
 
 if __name__ == "__main__":

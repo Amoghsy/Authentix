@@ -5,6 +5,7 @@ FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
+ENV AUTHENTIX_DEVICE=cpu
 
 # Install system dependencies required for OpenCV, FFmpeg, and PyTorch C++ extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
