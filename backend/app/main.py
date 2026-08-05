@@ -25,7 +25,6 @@ from backend.app.config import get_settings, setup_app_directories, validate_set
 from backend.app.logging_config import configure_logging
 from backend.app.exceptions import register_exception_handlers
 from backend.app.middleware import register_middleware
-from backend.app.dependencies import warm_up_services
 from backend.app.routes import health, version, analyze, history
 from backend.app.auth import router as auth_router_module
 
@@ -78,14 +77,11 @@ async def lifespan(app: FastAPI):
                 "Ensure Alembic migrations have run successfully."
             )
 
-        # 5. Warm up AI model sessions (skip gracefully if models are missing)
-        try:
-            warm_up_services()
-        except Exception as warm_err:
-            logger.warning(
-                f"AI model warm-up skipped: {warm_err}. "
-                "Service will start without pre-loaded inference sessions."
-            )
+        # 5. Skip AI warmup at startup to speed up deployment and port binding
+        logger.info(
+            "Skipping AI warm-up during startup. "
+            "Models will be lazily initialized on first request."
+        )
 
         logger.info("Authentix backend startup complete. Service is ready.")
         yield

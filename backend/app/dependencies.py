@@ -17,31 +17,25 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from backend.app.config import get_settings
-from ai.video.inference.config import InferenceConfig as VideoConfig
-from ai.video.inference.predictor import VideoPredictor
-from ai.audio.inference.config import InferenceConfig as AudioConfig
-from ai.audio.inference.predictor import AudioPredictor
-from ai.lip_sync.preprocessing.sync_preprocessor import SyncPreprocessor
-from ai.lip_sync.preprocessing.config import get_default_config as get_lipsync_config
-from ai.fusion.config import FusionConfig, ReportConfig, get_default_config as get_fusion_config
-from ai.fusion.predictor import Predictor
 
 logger = logging.getLogger("backend.dependencies")
 
 # Singleton caching variables
-_video_predictor: Optional[VideoPredictor] = None
-_audio_predictor: Optional[AudioPredictor] = None
-_sync_preprocessor: Optional[SyncPreprocessor] = None
-_fusion_predictor: Optional[Predictor] = None
+_video_predictor = None
+_audio_predictor = None
+_sync_preprocessor = None
+_fusion_predictor = None
 
 
-def get_video_predictor() -> VideoPredictor:
+def get_video_predictor():
     """
     Returns a cached or newly initialized VideoPredictor instance.
     Reuses the underlying ONNX Runtime session.
     """
     global _video_predictor
     if _video_predictor is None:
+        from ai.video.inference.config import InferenceConfig as VideoConfig
+        from ai.video.inference.predictor import VideoPredictor
         logger.info("Initializing singleton VideoPredictor ONNX session...")
         settings = get_settings()
         video_cfg = VideoConfig(model_path=settings.VIDEO_MODEL_PATH)
@@ -49,13 +43,15 @@ def get_video_predictor() -> VideoPredictor:
     return _video_predictor
 
 
-def get_audio_predictor() -> AudioPredictor:
+def get_audio_predictor():
     """
     Returns a cached or newly initialized AudioPredictor instance.
     Reuses the underlying ONNX Runtime session.
     """
     global _audio_predictor
     if _audio_predictor is None:
+        from ai.audio.inference.config import InferenceConfig as AudioConfig
+        from ai.audio.inference.predictor import AudioPredictor
         logger.info("Initializing singleton AudioPredictor ONNX session...")
         settings = get_settings()
         audio_cfg = AudioConfig(model_path=settings.AUDIO_MODEL_PATH)
@@ -63,25 +59,29 @@ def get_audio_predictor() -> AudioPredictor:
     return _audio_predictor
 
 
-def get_sync_preprocessor() -> SyncPreprocessor:
+def get_sync_preprocessor():
     """
     Returns a cached or newly initialized SyncPreprocessor instance.
     """
     global _sync_preprocessor
     if _sync_preprocessor is None:
+        from ai.lip_sync.preprocessing.sync_preprocessor import SyncPreprocessor
+        from ai.lip_sync.preprocessing.config import get_default_config as get_lipsync_config
         logger.info("Initializing singleton SyncPreprocessor instance...")
         lipsync_cfg = get_lipsync_config()
         _sync_preprocessor = SyncPreprocessor(lipsync_cfg)
     return _sync_preprocessor
 
 
-def get_fusion_predictor() -> Predictor:
+def get_fusion_predictor():
     """
     Returns a cached or newly initialized Predictor instance.
     Configured to output reports directly inside the backend's reports directory.
     """
     global _fusion_predictor
     if _fusion_predictor is None:
+        from ai.fusion.config import FusionConfig, ReportConfig, get_default_config as get_fusion_config
+        from ai.fusion.predictor import Predictor
         logger.info("Initializing singleton Fusion Predictor wrapper...")
         settings = get_settings()
         default_fusion_cfg = get_fusion_config()

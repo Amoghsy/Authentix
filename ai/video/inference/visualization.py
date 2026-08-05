@@ -9,7 +9,6 @@ import logging
 from pathlib import Path
 from typing import List, Union
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 import sys
@@ -85,6 +84,7 @@ class VideoInferenceVisualizer:
         overall_confidence: float
     ) -> None:
         """Generates a line plot showing deepfake probability over video timestamps."""
+        import matplotlib.pyplot as plt
         plt.figure(figsize=(9, 5))
         
         # Plot curve
@@ -117,6 +117,7 @@ class VideoInferenceVisualizer:
         fake_probs: np.ndarray
     ) -> None:
         """Generates a 1D grid heatmap of classifications for each frame."""
+        import matplotlib.pyplot as plt
         num_frames = len(fake_probs)
         heatmap_data = fake_probs.reshape(1, num_frames)
 
