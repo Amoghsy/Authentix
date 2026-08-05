@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentix Deepfake Assessment Report</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --panel-bg: rgba(17, 24, 39, 0.7);
+            --border-color: rgba(243, 244, 246, 0.1);
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --accent-glow: rgba(99, 102, 241, 0.15);
+            --green: #2ea44f;
+            --yellow: #dbab09;
+            --orange: #f78166;
+            --red: #da3633;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: linear-gradient(135deg, #070913 0%, #111827 100%);
+            font-family: 'Outfit', sans-serif;
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 850px;
+            width: 100%;
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px var(--accent-glow);
+            overflow: hidden;
+        }
+
+        /* Header section */
+        header {
+            background: rgba(31, 41, 55, 0.4);
+            border-bottom: 1px solid var(--border-color);
+            padding: 30px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo-area h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            background: linear-gradient(90deg, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .logo-area p {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }
+
+        .badge-risk {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            padding: 8px 16px;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            box-shadow: 0 0 15px currentColor;
+        }
+
+        .risk-low {
+            color: var(--green);
+            background: rgba(46, 164, 79, 0.15);
+            border-color: rgba(46, 164, 79, 0.3);
+        }
+
+        .risk-medium {
+            color: var(--yellow);
+            background: rgba(219, 171, 9, 0.15);
+            border-color: rgba(219, 171, 9, 0.3);
+        }
+
+        .risk-high {
+            color: var(--orange);
+            background: rgba(247, 129, 102, 0.15);
+            border-color: rgba(247, 129, 102, 0.3);
+        }
+
+        .risk-critical {
+            color: var(--red);
+            background: rgba(218, 54, 51, 0.15);
+            border-color: rgba(218, 54, 51, 0.3);
+        }
+
+        /* Content panels */
+        .content {
+            padding: 40px;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+
+        @media (max-width: 600px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+        }
+
+        .metric-card {
+            background: rgba(31, 41, 55, 0.3);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 25px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .metric-title {
+            font-size: 13px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .pred-label {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 36px;
+            font-weight: 800;
+            margin-bottom: 5px;
+        }
+
+        .pred-deepfake {
+            color: var(--orange);
+            text-shadow: 0 0 10px rgba(247, 129, 102, 0.3);
+        }
+
+        .pred-authentic {
+            color: var(--green);
+            text-shadow: 0 0 10px rgba(46, 164, 79, 0.3);
+        }
+
+        .metric-value {
+            font-size: 40px;
+            font-weight: 800;
+            letter-spacing: -1px;
+        }
+
+        .progress-container {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            height: 6px;
+            border-radius: 3px;
+            margin-top: 15px;
+            overflow: hidden;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #6366f1, #a855f7);
+            border-radius: 3px;
+            transition: width 1s ease-in-out;
+        }
+
+        /* Table breakdown */
+        .section-title {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--text-primary);
+            border-left: 3px solid #6366f1;
+            padding-left: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 40px;
+        }
+
+        th {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            text-align: left;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        td {
+            padding: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 15px;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        .modality-name {
+            font-weight: 600;
+        }
+
+        .score-num {
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+        }
+
+        /* Explainability Reasoning */
+        .reasoning-panel {
+            background: rgba(99, 102, 241, 0.04);
+            border: 1px dashed rgba(99, 102, 241, 0.2);
+            border-radius: 16px;
+            padding: 25px 30px;
+            margin-bottom: 40px;
+        }
+
+        .reasoning-panel ul {
+            list-style: none;
+        }
+
+        .reasoning-panel li {
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 12px;
+            color: #d1d5db;
+            position: relative;
+            padding-left: 20px;
+        }
+
+        .reasoning-panel li:last-child {
+            margin-bottom: 0;
+        }
+
+        .reasoning-panel li::before {
+            content: "•";
+            color: #818cf8;
+            font-weight: bold;
+            font-size: 18px;
+            position: absolute;
+            left: 0;
+            top: -2px;
+        }
+
+        /* Footer execution metrics */
+        footer {
+            background: rgba(31, 41, 55, 0.2);
+            border-top: 1px solid var(--border-color);
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .footer-stats span {
+            margin-right: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo-area">
+                <h1>Authentix</h1>
+                <p>Reference: 2c902246-d12e-4dc1-8898-79c804636306</p>
+            </div>
+            <div class="badge-risk risk-medium">
+                MEDIUM Risk
+            </div>
+        </header>
+
+        <div class="content">
+            <div class="dashboard-grid">
+                <div class="metric-card">
+                    <span class="metric-title">Consolidated Decision</span>
+                    <span class="pred-label pred-deepfake">DEEPFAKE</span>
+                    <span class="metric-title" style="margin-top: 5px;">Confidence: 34.14%</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-title">Multimodal Fusion Score</span>
+                    <span class="metric-value">0.5974</span>
+                    <div class="progress-container">
+                        <div class="progress-bar" style="width: 59.7%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <h2 class="section-title">Modality Calibration</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Modality Channel</th>
+                        <th>Risk Score</th>
+                        <th>Engine Influence</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="modality-name">Video AI Deepfake Classifier</td>
+                        <td class="score-num">0.8947</td>
+                        <td>50.0% (Weight)</td>
+                    </tr>
+                    <tr>
+                        <td class="modality-name">Audio AI Deepfake Classifier</td>
+                        <td class="score-num">0.5000</td>
+                        <td>30.0% (Weight)</td>
+                    </tr>
+                    <tr>
+                        <td class="modality-name">Lip Sync Mismatch Detector</td>
+                        <td class="score-num">0.0000</td>
+                        <td>20.0% (Weight)</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2 class="section-title">Explainability Feed</h2>
+            <div class="reasoning-panel">
+                <ul>
+                    <li>Visual manipulation probability is high.</li><li>Suspected audio manipulation with low detector confidence.</li><li>Audio and visual streams appear synchronized.</li><li>High confidence threat: both visual and auditory streams contain signs of tampering.</li>
+                </ul>
+            </div>
+        </div>
+
+        <footer>
+            <div class="footer-stats">
+                <span>Execution: 0.29 ms</span>
+                <span>Threshold: 0.50</span>
+            </div>
+            <div>
+                <span>Timestamp: 2026-08-05T11:32:17.722999+00:00</span>
+            </div>
+        </footer>
+    </div>
+</body>
+</html>

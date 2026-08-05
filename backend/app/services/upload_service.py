@@ -47,7 +47,9 @@ class UploadService:
             raise FileValidationError("Invalid upload request: no file provided.")
 
         # Read content type and validate headers
-        content_type = file.content_type or ""
+        # Strip codec parameters (e.g. 'video/mp4; codecs="avc1"') → 'video/mp4'
+        raw_content_type = file.content_type or ""
+        content_type = raw_content_type.split(";")[0].strip().lower()
         filename = file.filename
         
         logger.info(f"Validating file upload: Name={filename}, MIME={content_type}")
@@ -60,12 +62,12 @@ class UploadService:
             allowed_mime_types=self.settings.ALLOWED_MIME_TYPES
         )
 
-        # Temp read size to check size constraints
+        # Read file content to determine size, then seek back.
+        # UploadFile.seek() only accepts a single position argument (no whence).
         try:
-            # Seek to end to get file size
-            await file.seek(0, 2)
-            size = await file.tell()
-            await file.seek(0)  # Reset pointer to start
+            content = await file.read()
+            size = len(content)
+            await file.seek(0)  # Reset pointer to start for downstream reads
         except Exception as e:
             logger.error(f"Failed to resolve uploaded file size: {e}")
             raise FileValidationError(f"Failed to read file size: {e}")

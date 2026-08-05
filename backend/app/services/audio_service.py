@@ -51,20 +51,31 @@ class AudioService:
         output_wav = temp_dir / "extracted.wav"
         
         logger.info(f"Extracting audio track from video to temp: {output_wav.resolve()}")
+        has_audio = True
         try:
             self.extractor.extract_audio(video_path, output_wav)
         except ExtractorError as e:
-            logger.warning(f"Audio extraction failed for {video_path}: {e}")
-            raise AudioExtractionError(
-                "Failed to extract audio track. Ensure the video contains a valid audio track.",
-                detail=str(e)
+            logger.warning(
+                f"Audio extraction failed (video likely has no audio track): {e}. "
+                f"Returning neutral audio prediction."
             )
+            has_audio = False
         except Exception as e:
-            logger.error(f"Unexpected audio extraction error: {e}", exc_info=True)
-            raise AudioExtractionError("System error during audio extraction.", detail=str(e))
+            logger.warning(
+                f"Unexpected audio extraction error — defaulting to neutral: {e}"
+            )
+            has_audio = False
 
-        if not output_wav.exists() or output_wav.stat().st_size == 0:
-            raise AudioExtractionError("Extracted audio track is empty or missing.")
+        # If extraction failed or produced an empty file, return a neutral (undecided) audio score.
+        # This lets the Fusion Engine continue with only Video + Lip-Sync signals.
+        if not has_audio or not output_wav.exists() or output_wav.stat().st_size == 0:
+            logger.info("No usable audio track — using neutral audio prediction (score=0.5).")
+            return AudioPrediction(
+                is_fake=False,
+                score=0.5,
+                confidence=0.0,
+                metadata={"no_audio": True, "latency_ms": 0.0}
+            )
 
         logger.info(f"Initiating Audio AI inference on: {output_wav.resolve()}")
         try:

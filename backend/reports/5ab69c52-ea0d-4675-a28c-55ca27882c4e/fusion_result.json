@@ -1,0 +1,25 @@
+{
+    "prediction": "Authentic",
+    "confidence": 0.4322,
+    "video_score": 0.0484,
+    "audio_score": 0.5,
+    "lip_sync_score": 0.0,
+    "fusion_score": 0.1742,
+    "risk_level": "Low",
+    "reasoning": [
+        "Video appears authentic (high confidence).",
+        "Suspected audio manipulation with low detector confidence.",
+        "Audio and visual streams appear synchronized.",
+        "Modality conflict: Audio indicates manipulation while Video appears authentic.",
+        "Aggregated multimodal evidence indicates the media file is authentic."
+    ],
+    "timestamp": "2026-08-05T11:31:52.658364+00:00",
+    "execution_stats": {
+        "execution_time_ms": 0.286,
+        "raw_fused_score": 0.1742,
+        "video_weight": 0.5,
+        "audio_weight": 0.3,
+        "lip_sync_weight": 0.2,
+        "decision_threshold": 0.5
+    }
+}
