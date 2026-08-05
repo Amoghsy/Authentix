@@ -360,6 +360,9 @@ Authentix/
 │   │   ├── components/         # UI components (Risk Dials, Waveform, Upload Zone)
 │   │   ├── pages/              # Dashboard, History, Analysis Detail views
 │   │   └── services/           # Axios API client & WebSocket handler
+├── deployment/                 # Deployment guides (DEPLOYMENT.md) & configs
+├── Dockerfile                  # Production Docker container for FastAPI + AI Engine
+├── .dockerignore              # Docker build exclusion rules
 └── experiments/                # Model evaluation scripts and benchmark plots
 ```
 
@@ -471,6 +474,28 @@ python ai/lip_sync/preprocessing/sync_preprocessor.py
 # Test Backend Analysis Service Integration
 python backend/app/services/analysis_service.py
 ```
+
+---
+
+## 🌐 Cloud Deployment Guide (Render, Railway & Vercel)
+
+For step-by-step documentation, see [deployment/DEPLOYMENT.md](file:///d:/Projects/Hackathon/Authentix/deployment/DEPLOYMENT.md).
+
+### 1. Backend & AI Engine (Render / Railway)
+- **Containerization**: Use the included root [Dockerfile](file:///d:/Projects/Hackathon/Authentix/Dockerfile) (packages Python 3.11, PyTorch, FFmpeg, OpenCV C++ libraries).
+- **Database**: Provision a PostgreSQL database instance on Render or Railway. Set `DATABASE_URL=postgresql+asyncpg://...`.
+- **Environment Variables**:
+  - `DATABASE_URL`: `postgresql+asyncpg://<user>:<password>@<host>:5432/<dbname>`
+  - `SECRET_KEY`: `<generated-random-32-byte-key>`
+  - `CORS_ORIGINS`: `https://your-app.vercel.app`
+- **Deploy**: Container automatically runs `alembic upgrade head && uvicorn backend.app.main:app --host 0.0.0.0 --port $PORT`.
+
+### 2. Frontend Dashboard (Vercel)
+- **Import Project**: Select the `Authentix` repository in Vercel.
+- **Settings**: Root Directory = `frontend`, Framework = `Vite`, Build Command = `npm run build`, Output = `dist`.
+- **Environment Variables**:
+  - `VITE_API_BASE_URL`: `https://authentix-backend.onrender.com` (or Railway URL).
+- **SPA Rewrites**: Handled automatically via [frontend/vercel.json](file:///d:/Projects/Hackathon/Authentix/frontend/vercel.json).
 
 ---
 
