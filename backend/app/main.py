@@ -53,8 +53,14 @@ async def lifespan(app: FastAPI):
         # 2. Workspace directories
         setup_app_directories(settings)
 
-        # 3. Validate ONNX model files exist
-        validate_settings(settings)
+        # 3. Validate ONNX model files exist (warn only — don't crash if missing)
+        try:
+            validate_settings(settings)
+        except FileNotFoundError as model_err:
+            logger.warning(
+                f"AI model file not found: {model_err}. "
+                "Inference endpoints will be unavailable until model files are provided."
+            )
 
         # 4. Create database tables if they don't exist yet (dev mode)
         #    In production, use Alembic migrations instead.
@@ -66,8 +72,14 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
         logger.info("Database tables verified / created.")
 
-        # 5. Warm up AI model sessions
-        warm_up_services()
+        # 5. Warm up AI model sessions (skip gracefully if models are missing)
+        try:
+            warm_up_services()
+        except Exception as warm_err:
+            logger.warning(
+                f"AI model warm-up skipped: {warm_err}. "
+                "Service will start without pre-loaded inference sessions."
+            )
 
         logger.info("Authentix backend startup complete. Service is ready.")
         yield
