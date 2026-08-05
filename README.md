@@ -7,7 +7,7 @@
 [![Vite](https://img.shields.io/badge/Vite-8.0-646CFF?style=for-the-badge&logo=vite&logoColor=white)](https://vitejs.dev)
 [![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-4.2-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 
-**Authentix** is a enterprise-grade, multimodal AI platform designed to detect, analyze, and explain synthetic media manipulations across video visual streams, audio speech tracks, and visual-auditory lip synchronization. By fusing deep learning models with a consensus-driven calibration engine, Authentix protects digital trust and provides human-interpretable forensic reasoning.
+**Authentix** is an enterprise-grade, multimodal AI platform designed to detect, analyze, and explain synthetic media manipulations across video visual streams, audio speech tracks, and visual-auditory lip synchronization. By fusing deep learning models with a consensus-driven calibration engine, Authentix protects digital trust and provides human-interpretable forensic reasoning.
 
 ---
 
@@ -45,7 +45,19 @@ Authentix addresses these challenges through a **4-Tiered Multimodal Detection E
 
 ---
 
-## 🏗️ System Architecture & Workflow
+## 🏗️ System Architecture & Visual System Design
+
+### 📐 System Architecture Diagram
+![System Architecture](System%20Architecture.png)
+
+---
+
+### 🤖 System Design - AI Models & Pipelines
+![System Design AI Models](System%20Design%20AI%20MODELS.png)
+
+---
+
+### 🔄 End-to-End Data Workflow
 
 ```text
                            ┌────────────────────────┐
@@ -90,11 +102,89 @@ Authentix addresses these challenges through a **4-Tiered Multimodal Detection E
 
 ---
 
+## 🗄️ Database Entity-Relationship (ER) Diagram
+
+Authentix utilizes an async relational database structure (PostgreSQL / SQLite via Async SQLAlchemy v2.0) to track user credentials, refresh sessions, forensic analysis results, and security audit events.
+
+### Mermaid ER Diagram
+
+```mermaid
+erDiagram
+    users ||--o{ refresh_tokens : "owns (1:N)"
+    users ||--o{ analysis_history : "executes (1:N)"
+    users ||--o{ audit_logs : "generates (1:N)"
+
+    users {
+        int id PK
+        string uuid UK "Index"
+        string name
+        string email UK "Index"
+        string password_hash
+        string role "Admin | Researcher | User"
+        boolean is_active
+        boolean is_verified
+        datetime created_at
+        datetime updated_at
+        datetime last_login
+    }
+
+    refresh_tokens {
+        int id PK
+        int user_id FK "users.id (CASCADE)"
+        string token UK "Index"
+        datetime expires_at
+        datetime created_at
+        boolean revoked
+    }
+
+    analysis_history {
+        int id PK
+        int user_id FK "users.id (CASCADE)"
+        string analysis_uuid UK "Index"
+        string original_video_path
+        string extracted_audio_path
+        string video_model_version
+        string audio_model_version
+        string sync_model_version
+        string video_prediction
+        string audio_prediction
+        float video_score
+        float audio_score
+        float lip_sync_score
+        float fusion_score
+        string final_prediction
+        float confidence
+        string risk_level
+        json reasoning
+        string report_path
+        float processing_time_ms
+        datetime created_at
+    }
+
+    audit_logs {
+        int id PK
+        int user_id FK "users.id (SET NULL)"
+        string action
+        string ip_address
+        string user_agent
+        datetime timestamp
+    }
+```
+
+### Relational Entity Schema Summary
+
+- **`users`**: Stores user authentication credentials, JWT access roles (`User`, `Researcher`, `Admin`), activation flags, and verification status.
+- **`refresh_tokens`**: Maintains active refresh token sessions tied to user accounts with revocation support for secure logouts.
+- **`analysis_history`**: Stores complete multi-modal analysis outcomes, intermediate audio/video file paths, individual engine scores, fused confidence ratings, risk levels, and natural language claims for complete auditability.
+- **`audit_logs`**: Tracks key user activities (`login`, `analyze_video`, `delete_analysis`) along with timestamp, IP address, and browser user-agent string for compliance monitoring.
+
+---
+
 ## 🛠️ Tech Stack
 
 ### AI / ML Core Engine
 - **Frameworks**: PyTorch, Torchaudio, Torchvision, Hugging Face `transformers`
-- **Architectures**: MobileNetV3-Small, Wav2Vec2-Base / WavLM, SyncNet (`lithiumice/syncnet`), S3FD Face Detector
+- **Architectures**: MobileNetV3-Small, `MelodyMachine/Deepfake-audio-detection-V2`, `lithiumice/syncnet`, S3FD Face Detector
 - **Computer Vision & Processing**: OpenCV, MediaPipe FaceMesh (478 3D landmarks), Albumentations, Librosa, SoundFile, NumPy, Scikit-Learn
 
 ### Backend Architecture
@@ -113,10 +203,14 @@ Authentix addresses these challenges through a **4-Tiered Multimodal Detection E
 
 ### 1. Video Deepfake Detection Engine 🎥
 
+#### Architecture & Dataset Specification
+- **Backbone Network**: `MobileNetV3-Small` initialized with ImageNet weights.
+- **Custom Classification Head**: Replaced default 1000-class head with `Linear(576 -> 256) -> Hardswish -> Dropout(0.2) -> Linear(256 -> 2)` for binary spatial forgery classification (Real vs Fake).
+- **Training Dataset**: Trained on processed face crops extracted from **FaceForensics++ / Deepfake Video Dataset (~7,000 videos)**.
+
 #### Logic & Pipeline
-- **Preprocessing**: Input videos are resampled, frames extracted, and faces detected and normalized to $224 \times 224 \times 3$ RGB tensors.
-- **Model Architecture**: Customized `MobileNetV3-Small` backbone initialized with ImageNet weights. The default 1000-class head is replaced with a custom binary classification head (`Linear(576 -> 256) -> Hardswish -> Dropout(0.2) -> Linear(256 -> 2)`).
-- **Staged Transfer Learning**:
+- **Frame & Face Preprocessing**: Resamples video frames, detects facial region, and normalizes faces to $224 \times 224 \times 3$ RGB tensors.
+- **Staged Transfer Learning Strategy**:
   - **Phase 1**: Backbone frozen, classifier head trained with AdamW ($LR = 10^{-3}$).
   - **Phase 2**: Unfreeze last 3 Conv/InvertedResidual blocks for localized feature adaptation ($LR = 10^{-4}$).
   - **Phase 3**: Full model fine-tuning with Cosine Annealing Learning Rate Schedule ($LR = 10^{-5}$).
@@ -133,13 +227,17 @@ Authentix addresses these challenges through a **4-Tiered Multimodal Detection E
 
 ### 2. Audio Deepfake Detection Engine 🎙️
 
+#### Architecture & Dataset Specification
+- **Pretrained Backbone**: [`MelodyMachine/Deepfake-audio-detection-V2`](https://huggingface.co/MelodyMachine/Deepfake-audio-detection-V2) (Hugging Face).
+- **Training & Fine-Tuning Dataset**: Preprocessed, validated, and fine-tuned on **The Fake-or-Real (FoR) Dataset** ([Kaggle FoR Dataset](https://www.kaggle.com/datasets/mohammedabdeldayem/the-fake-or-real-dataset)).
+- **Export Format**: Exported fine-tuned weights to **ONNX runtime** format for low-latency production inference.
+
 #### Logic & Pipeline
-- **Preprocessing**: Audio streams are extracted via FFmpeg, converted to $16\text{ kHz}$ mono WAV format, peak-normalized, and sliced into 5-second evaluation windows.
-- **Model Architecture**: Pretrained Transformer encoder backbone (`facebook/wav2vec2-base` / `WavLM`) with sequence classification head.
-- **Training Strategy**: Two-stage transfer learning fine-tuning. Phase 1 trains only the projection classifier head, while Phase 2 unfreezes the upper N transformer encoder layers to capture fine spectral voice cloning artifacts.
+- **Audio Preprocessing**: Audio tracks extracted via FFmpeg, resampled to $16\text{ kHz}$ mono WAV format, peak-normalized, and sliced into 5-second evaluation windows.
+- **Staged Fine-Tuning**: Phase 1 trains projection classifier head; Phase 2 unfreezes upper transformer encoder layers to capture fine spectral acoustic artifacts from voice cloning neural networks.
 
 #### Best Evaluation Results
-*(Evaluated on clean benchmark test split of 189 audio samples)*
+*(Evaluated on clean benchmark test split of 189 audio samples from the Fake-or-Real dataset)*
 | Metric | Result |
 | :--- | :--- |
 | **Accuracy** | **100.00%** (`1.0000`) |
@@ -153,15 +251,23 @@ Authentix addresses these challenges through a **4-Tiered Multimodal Detection E
 
 ### 3. Lip Sync Mismatch Engine 👄
 
+#### Architecture & Pretrained Model Specification
+- **Model Backbone**: Pretrained [`lithiumice/syncnet`](https://huggingface.co/lithiumice/syncnet) SyncNet architecture.
+- **Face & Landmark Detectors**: Pretrained S3FD face detector (`sfd_face.pth`) and Google MediaPipe FaceLandmarker (`face_landmarker.task`).
+- **Training Status**: Pretrained zero-shot inference engine (no additional model training required).
+
 #### Logic & Pipeline
 - **Video Stream Tracking**: Video decoded at 25 FPS. S3FD face detector detects and tracks active speaker bounding boxes across frames.
-- **Landmark Mesh & Crop**: MediaPipe FaceMesh locates 478 3D facial landmarks to crop mouth ROIs normalized to $111 \times 111$ grayscale. Crops are batched into 5-frame sliding windows producing PyTorch tensors of shape `(Batch, 1, 5, 111, 111)`.
-- **Audio MFCC Extraction**: Audio signal converted into 13-dimensional MFCC features at $100\text{ Hz}$, formatted into 20-frame temporal slices of shape `(Batch, 1, 20, 13)`.
-- **SyncNet Correlation**: Evaluated using pretrained `lithiumice/syncnet` model weights. Computes distance metrics between visual lip movements and audio acoustic features to identify temporal synchronization offsets and out-of-sync audio replacements.
+- **3D Landmark Mesh & Crop**: MediaPipe FaceMesh locates 478 3D facial landmarks to crop mouth ROIs normalized to $111 \times 111$ grayscale. Crops are batched into 5-frame sliding windows producing PyTorch tensors of shape `(Batch, 1, 5, 111, 111)`.
+- **Audio MFCC Feature Alignment**: Audio signal converted into 13-dimensional MFCC features at $100\text{ Hz}$, formatted into 20-frame temporal slices of shape `(Batch, 1, 20, 13)`.
+- **SyncNet Offset Correlation**: SyncNet computes distance embeddings between visual lip movements and audio acoustic features to identify temporal synchronization offsets and out-of-sync audio replacements.
 
 ---
 
 ### 4. Multimodal Fusion & Calibration Engine ⚙️
+
+#### Architecture Specification
+- **Type**: Custom Explainable Weighted Fusion & Consensus Calibration Engine (Rule-based mathematical formulation, no ML training required).
 
 #### Logic & Mathematical Formulations
 
@@ -170,18 +276,66 @@ Authentix addresses these challenges through a **4-Tiered Multimodal Detection E
    *Default Weights*: $W_{\text{video}} = 0.50$, $W_{\text{audio}} = 0.30$, $W_{\text{lipsync}} = 0.20$.
 
 2. **Consensus Variance Confidence Penalty Calibration**:
-   When modality predictions disagree (e.g. Video says Fake $0.95$, Audio says Real $0.05$), the system computes weighted variance:
+   When modality predictions disagree (e.g. Video = Fake $0.95$, Audio = Real $0.05$), the system computes weighted variance:
    $$\sigma^2 = \sum_{i} W_i \cdot (S_i - S_{\text{fused}})^2$$
    $$\text{Penalty} = 2.0 \cdot \sigma^2$$
    $$\text{Confidence}_{\text{calibrated}} = \text{Confidence}_{\text{aggregated}} \cdot (1.0 - \text{Penalty})$$
-   This penalizes confidence by up to $50\%$ in conflicting scenarios, signaling uncertainty to human operators.
+   Penalizes confidence by up to $50\%$ in conflicting scenarios to alert human operators of modal disagreement.
 
 3. **Single-Modality Threat Safeguard**:
-   To prevent single-channel attacks (e.g. voice cloning on real video) from being averaged down to "Authentic", if $\max(S_i) > 0.70$:
+   If $\max(S_i) > 0.70$, escalates the final fused score upward:
    $$S_{\text{calibrated}} = \max\left(S_{\text{fused}}, \, 0.40 \cdot S_{\text{fused}} + 0.60 \cdot \max(S_i)\right)$$
+   Prevents single-channel attacks (e.g. voice cloning on real video) from being averaged down to "Authentic".
 
 4. **Automated Plain-English Explainability**:
    Translates scores, confidence bounds, and modal conflicts into human-readable sentences (e.g., *"Visual manipulation probability is high"*, *"Modality conflict: Audio indicates manipulation while Video appears authentic"*, *"Aggregated deepfake risk is driven by lip-sync synchronization anomalies"*).
+
+---
+
+## 📦 External Datasets & Pretrained Models
+
+The Authentix multi-modal detection pipeline is powered by external benchmark datasets and Hugging Face pretrained model backbones:
+
+### 📊 Kaggle Datasets
+
+| Purpose | Dataset | Usage |
+| :--- | :--- | :--- |
+| **Video Deepfake Detection** | **FaceForensics++** / Deepfake Video Dataset (~7,000 videos) | Trained the **Video AI (MobileNetV3)** using extracted face frames. |
+| **Audio Deepfake Detection** | **The Fake-or-Real (FoR) Dataset** ([Kaggle - FoR Dataset](https://www.kaggle.com/datasets/mohammedabdeldayem/the-fake-or-real-dataset)) | Used for audio preprocessing, training, validation, and testing of the Audio AI. |
+
+---
+
+### 🤗 Hugging Face Models
+
+#### 1. Audio AI Backbone
+- **Model**: [`MelodyMachine/Deepfake-audio-detection-V2`](https://huggingface.co/MelodyMachine/Deepfake-audio-detection-V2)
+- **Purpose**: Pretrained audio classification backbone model, fine-tuned on the processed Fake-or-Real (FoR) dataset, exported to ONNX, and deployed for Audio Inference.
+
+#### 2. Lip-Sync Detection
+- **Model**: [`lithiumice/syncnet`](https://huggingface.co/lithiumice/syncnet)
+- **Purpose**: Pretrained SyncNet model for visual-audio temporal lip synchronization detection. Operates in zero-shot / pretrained evaluation mode as the multimodal sync module.
+
+---
+
+### 🧠 Model Training & Development Summary
+
+| Model | Backbone / Source | Development Status |
+| :--- | :--- | :--- |
+| **Video AI** | MobileNetV3-Small | ✅ Trained on processed video dataset (~7,000 videos) |
+| **Audio AI** | `MelodyMachine/Deepfake-audio-detection-V2` | ✅ Fine-tuned on the FoR dataset |
+| **Lip-Sync** | `lithiumice/syncnet` | ✅ Pretrained inference model (no additional training required) |
+| **Fusion Engine** | Explainable Weighted Fusion | ✅ Custom rule-based & variance-calibrated scoring logic |
+
+---
+
+### 📋 External Resources Summary Matrix
+
+| Category | Resource | Role in Authentix |
+| :--- | :--- | :--- |
+| **Video Dataset** | Deepfake Video Dataset (~7,000 videos) | Video preprocessing and MobileNetV3 training |
+| **Audio Dataset** | The Fake-or-Real (FoR) Dataset | Audio preprocessing, training, validation & testing |
+| **Hugging Face Model** | `MelodyMachine/Deepfake-audio-detection-V2` | Audio classification backbone model |
+| **Hugging Face Model** | `lithiumice/syncnet` | Lip-sync synchronization module |
 
 ---
 
@@ -211,51 +365,112 @@ Authentix/
 
 ---
 
-## 🚀 Quickstart & Setup Guide
+## 🚀 Complete Project Setup & Execution Commands
 
 ### Prerequisites
-- **Python 3.11** installed
-- **Node.js 18+** and **npm**
-- **FFmpeg** installed (automatically downloaded on Windows if missing)
+- **Python 3.11** installed (`python --version`)
+- **Node.js 18+** and **npm** installed (`node -v` / `npm -v`)
+- **Git** installed
+- **FFmpeg** (automatically managed on Windows if not present in system `PATH`)
 
-### 1. Environment Setup & Backend Installation
+---
+
+### Step 1: Clone Repository & Setup Environment Files
+
 ```bash
-# Clone the repository
+# 1. Clone the repository
 git clone https://github.com/YourRepo/Authentix.git
 cd Authentix
 
-# Create and activate Python virtual environment
+# 2. Configure Environment Variables
+# Copy example configuration to active .env file
+cp .env.example .env
+```
+
+---
+
+### Step 2: Python Virtual Environment & Backend Setup
+
+```bash
+# 1. Create Python virtual environment
 python -m venv .venv
-# On Windows:
-.\.venv\Scripts\activate
-# On Linux/macOS:
+
+# 2. Activate virtual environment
+# Windows (PowerShell):
+.\.venv\Scripts\Activate.ps1
+# Windows (CMD):
+.\.venv\Scripts\activate.bat
+# Linux / macOS:
 source .venv/bin/activate
 
-# Install Python dependencies
+# 3. Upgrade pip and install all required dependencies
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 2. Run Database Migrations & Start Backend Server
-```bash
-# Apply database migrations
-alembic upgrade head
+---
 
-# Start FastAPI server
+### Step 3: Database Initialization & Alembic Migrations
+
+```bash
+# Apply database migrations to create SQLite / PostgreSQL tables
+alembic upgrade head
+```
+
+---
+
+### Step 4: Run Backend FastAPI Server
+
+```bash
+# Launch Uvicorn dev server on http://127.0.0.1:8000
 python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
-*Backend API Documentation will be live at `http://127.0.0.1:8000/docs`.*
+> 📌 **Backend API Docs**: Interactive Swagger documentation will be accessible at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
-### 3. Frontend Installation & Dev Server
+---
+
+### Step 5: Frontend React Dashboard Installation & Setup
+
+Open a **new terminal window** in the project root:
+
 ```bash
+# 1. Navigate to frontend folder
 cd frontend
 
-# Install node dependencies
+# 2. Install Node packages
 npm install
 
-# Launch React development server
+# 3. Start Vite Development Server
 npm run dev
 ```
-*Frontend App will be running at `http://localhost:5173`.*
+> 📌 **Frontend Web App**: Dashboard will be available at [http://localhost:5173](http://localhost:5173).
+
+---
+
+### Step 6: Verify AI Engines via Modular Self-Tests (Optional)
+
+You can run individual self-test modules to verify model loading, feature extraction, and scoring logic without starting the web application:
+
+```powershell
+# Test Multimodal Fusion & Score Calibration Engine
+python ai/fusion/scoring.py
+python ai/fusion/reasoning.py
+python ai/fusion/testing/test_fusion.py
+
+# Test Audio Engine Models & Feature Extraction
+python ai/audio/training/model.py
+python ai/audio/testing/evaluator.py
+
+# Test Video Engine Backbone & Spatial Feature Pipeline
+python ai/video/training/model.py
+
+# Test Lip-Sync Preprocessor & S3FD / MediaPipe Pipelines
+python ai/lip_sync/preprocessing/config.py
+python ai/lip_sync/preprocessing/sync_preprocessor.py
+
+# Test Backend Analysis Service Integration
+python backend/app/services/analysis_service.py
+```
 
 ---
 
@@ -278,6 +493,6 @@ Developed with ❤️ by **Team Authentix**:
 
 ---
 
-<p center>
+<p align="center">
 <b>Authentix</b> — Protecting Digital Integrity in the Age of Generative AI.
 </p>
