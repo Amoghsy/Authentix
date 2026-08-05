@@ -67,5 +67,6 @@ pyjwt>=2.8.0
 bcrypt>=4.0.0
 cryptography>=42.0.0
 pydantic[email]>=2.0.0
+python-dotenv>=1.0.0
 
 

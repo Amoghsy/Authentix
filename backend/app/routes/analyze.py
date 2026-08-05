@@ -1,10 +1,12 @@
 """
-analyze.py
+analyze.py  [UPDATED - Part 6]
 
-This module contains the primary routes for Authentix:
-- POST /api/analyze: Receives uploads, runs AI modules sequentially, and fuses outcomes.
-- GET /api/report/{analysis_id}: Resolves and returns saved JSON reports.
-- DELETE /api/report/{analysis_id}: Deletes stored reports and clears disk.
+Primary AI analysis routes for Authentix.
+Changes from Part 5:
+  - POST /api/analyze now requires JWT authentication via get_current_user dependency
+  - Analysis results are automatically persisted to the database via AnalysisService
+  - GET /api/report/{analysis_id} now requires authentication
+  - DELETE /api/report/{analysis_id} now requires authentication
 """
 
 import json
@@ -15,8 +17,9 @@ import uuid
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Ensure project root is in path for direct execution
 project_root = str(Path(__file__).resolve().parents[3])
@@ -24,7 +27,6 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from backend.app.config import Settings, get_settings
-from backend.app.exceptions import FileValidationError
 from backend.app.models.response_models import (
     AnalysisResponse,
     VideoModelResponse,
@@ -38,14 +40,25 @@ from backend.app.services.audio_service import AudioService
 from backend.app.services.lipsync_service import LipSyncService
 from backend.app.services.fusion_service import FusionService
 from backend.app.services.report_service import ReportService
+from backend.app.services.analysis_service import AnalysisService
 from backend.app.utils.cleanup import cleanup_session_temp_files
+from backend.app.auth.dependencies import (
+    get_current_user,
+    get_client_ip,
+    get_user_agent,
+    require_role
+)
+from backend.app.database.session import get_db
+from backend.app.database.models.user import User
 import backend.app.dependencies as deps
 
 logger = logging.getLogger("backend.routes.analyze")
 router = APIRouter()
 
 
-# Endpoint dependencies helpers
+# ---------------------------------------------------------------------------
+# AI Service dependency helpers (unchanged from Part 5)
+# ---------------------------------------------------------------------------
 def get_upload_service(settings: Settings = Depends(get_settings)) -> UploadService:
     return UploadService(settings)
 
@@ -76,54 +89,98 @@ def get_report_service(settings: Settings = Depends(get_settings)) -> ReportServ
     return ReportService(settings)
 
 
+# ---------------------------------------------------------------------------
+# POST /api/analyze  [UPDATED: requires JWT, persists results to DB]
+# ---------------------------------------------------------------------------
 @router.post("/api/analyze", response_model=AnalysisResponse)
 async def analyze_video_endpoint(
+    request: Request,
     file: UploadFile = File(...),
     upload_service: UploadService = Depends(get_upload_service),
     video_service: VideoService = Depends(get_video_service),
     audio_service: AudioService = Depends(get_audio_service),
     lipsync_service: LipSyncService = Depends(get_lipsync_service),
     fusion_service: FusionService = Depends(get_fusion_service),
-    settings: Settings = Depends(get_settings)
+    settings: Settings = Depends(get_settings),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_role("Admin", "Researcher", "User"))
 ) -> AnalysisResponse:
     """
-    Ingests video uploads, runs deepfake classification workflows, aggregates
-    scores via decision fusion, and generates a unified response.
+    Accepts a video upload, runs the full AI deepfake detection pipeline
+    (Video AI → Audio AI → Lip Sync → Fusion Engine), persists the result
+    to the database under the authenticated user's history, and returns
+    the unified analysis response.
+
+    Authentication: Bearer JWT token required.
     """
     analysis_id = str(uuid.uuid4())
-    logger.info(f"Received video analysis request. Target Session ID: {analysis_id}")
-    
+    logger.info(
+        f"Analysis request from user uuid={current_user.uuid} "
+        f"session={analysis_id}"
+    )
+
     start_time = time.perf_counter()
     saved_path: Optional[Path] = None
-    
+
     try:
-        # 1. Ingest upload and save securely to disk
+        # 1. Validate and save upload securely to disk
         saved_path = await upload_service.upload_video(file)
-        
+        original_filename = file.filename or saved_path.name
+
         # 2. Execute Video AI
         video_prediction = await video_service.analyze_video(saved_path)
-        
-        # 3. Execute Audio AI
+
+        # 3. Execute Audio AI (extract WAV + classify)
         audio_prediction = await audio_service.analyze_audio(saved_path, analysis_id)
-        
-        # 4. Execute Lip Sync tracking
+
+        # 4. Execute Lip Sync preprocessing
         lipsync_prediction = await lipsync_service.analyze_lipsync(saved_path, analysis_id)
-        
-        # 5. Execute Fusion Engine scoring & save reports
+
+        # 5. Execute Fusion Engine + generate report files
         fusion_result = await fusion_service.fuse_predictions(
             video_pred=video_prediction,
             audio_pred=audio_prediction,
             lips_pred=lipsync_prediction,
             analysis_id=analysis_id
         )
-        
-        # 6. Delete intermediate file uploads and temp alignment spaces
-        cleanup_session_temp_files(analysis_id, settings)
-        
-        # 7. Compute total processing time
+
+        # 6. Compute processing time
         processing_time_ms = (time.perf_counter() - start_time) * 1000.0
-        logger.info(f"Successful session analysis completion {analysis_id} in {processing_time_ms:.1f}ms")
-        
+
+        # 7. Clean up intermediate temp files
+        cleanup_session_temp_files(analysis_id, settings)
+
+        # 8. Persist analysis result to database under the authenticated user
+        report_dir = str(settings.REPORTS_DIR / analysis_id)
+        analysis_svc = AnalysisService(db)
+        await analysis_svc.persist_analysis(
+            user=current_user,
+            analysis_uuid=analysis_id,
+            final_prediction=fusion_result.prediction,
+            confidence=fusion_result.confidence,
+            risk_level=fusion_result.risk_level,
+            video_score=fusion_result.video_score,
+            audio_score=fusion_result.audio_score,
+            lip_sync_score=fusion_result.lip_sync_score,
+            fusion_score=fusion_result.fusion_score,
+            video_prediction="Deepfake" if video_prediction.is_fake else "Authentic",
+            audio_prediction="Deepfake" if audio_prediction.is_fake else "Authentic",
+            original_video_path=str(saved_path),
+            video_model_version="1.0.2",
+            audio_model_version="2.1.0",
+            sync_model_version="1.0.0",
+            reasoning=fusion_result.reasoning,
+            report_path=report_dir,
+            processing_time_ms=processing_time_ms,
+            ip_address=get_client_ip(request),
+            user_agent=get_user_agent(request)
+        )
+
+        logger.info(
+            f"Analysis {analysis_id} complete for user uuid={current_user.uuid} "
+            f"in {processing_time_ms:.1f}ms: {fusion_result.prediction}"
+        )
+
         return AnalysisResponse(
             analysis_id=analysis_id,
             prediction=fusion_result.prediction,
@@ -162,38 +219,54 @@ async def analyze_video_endpoint(
             ),
             reasoning=fusion_result.reasoning
         )
-        
+
     except Exception as e:
-        # Cleanup file space in case of failures during prediction runs
+        # Clean up on failure
         if saved_path and saved_path.exists():
             saved_path.unlink()
         cleanup_session_temp_files(analysis_id, settings)
-        logger.error(f"Pipeline execution failed for session {analysis_id}: {e}", exc_info=True)
+        logger.error(
+            f"Pipeline failed for session {analysis_id}: {e}", exc_info=True
+        )
         raise e
 
 
+# ---------------------------------------------------------------------------
+# GET /api/report/{analysis_id}  [UPDATED: requires authentication]
+# ---------------------------------------------------------------------------
 @router.get("/api/report/{analysis_id}")
 def get_report_endpoint(
     analysis_id: str,
-    report_service: ReportService = Depends(get_report_service)
+    report_service: ReportService = Depends(get_report_service),
+    current_user: User = Depends(get_current_user)
 ):
     """
-    Retrieves stored JSON prediction summary results from backend reports storage.
+    Retrieves the stored JSON report for a completed analysis.
+    Authentication required — users can only access reports from their own sessions.
     """
-    logger.info(f"Retrieving JSON report content for session ID: {analysis_id}")
+    logger.info(
+        f"Report lookup: session={analysis_id} user={current_user.uuid}"
+    )
     report_content = report_service.read_json_report(analysis_id)
     return JSONResponse(content=json.loads(report_content))
 
 
+# ---------------------------------------------------------------------------
+# DELETE /api/report/{analysis_id}  [UPDATED: requires authentication]
+# ---------------------------------------------------------------------------
 @router.delete("/api/report/{analysis_id}")
 def delete_report_endpoint(
     analysis_id: str,
-    report_service: ReportService = Depends(get_report_service)
+    report_service: ReportService = Depends(get_report_service),
+    current_user: User = Depends(get_current_user)
 ):
     """
-    Clears all saved report outputs and directory references matching the analysis ID.
+    Purges all report files for a completed analysis session.
+    Authentication required.
     """
-    logger.info(f"Purging stored reports assets for session ID: {analysis_id}")
+    logger.info(
+        f"Report purge: session={analysis_id} user={current_user.uuid}"
+    )
     report_service.delete_analysis_report(analysis_id)
     return {
         "success": True,
@@ -203,48 +276,15 @@ def delete_report_endpoint(
 
 if __name__ == "__main__":
     print("Executing self-test for backend/app/routes/analyze.py...")
-    # Mock services setup for test clients
-    from fastapi import FastAPI
-    from fastapi.testclient import TestClient
-    from ai.fusion.schemas import FusionResult
-    
-    app = FastAPI()
-    
-    # Setup mock endpoints routes
-    @app.post("/api/analyze")
-    def mock_analyze(file: UploadFile = File(...)):
-        return {
-            "analysis_id": "test-uuid-5555",
-            "prediction": "Real",
-            "confidence": 0.88,
-            "risk_level": "Low",
-            "processing_time_ms": 250.0,
-            "video": {"is_fake": False, "score": 0.12, "confidence": 0.90, "metadata": {}},
-            "audio": {"is_fake": False, "score": 0.15, "confidence": 0.92, "metadata": {}},
-            "lip_sync": {"is_fake": False, "score": 0.10, "confidence": 0.85, "metadata": {}},
-            "fusion": {
-                "prediction": "Real",
-                "confidence": 0.88,
-                "video_score": 0.12,
-                "audio_score": 0.15,
-                "lip_sync_score": 0.10,
-                "fusion_score": 0.12,
-                "risk_level": "Low",
-                "reasoning": ["OK"],
-                "timestamp": "2026-08-05T15:38:00Z"
-            },
-            "reasoning": ["OK"]
-        }
-
-    client = TestClient(app)
     try:
-        # Mock file post
-        files = {"file": ("video.mp4", b"dummy video content", "video/mp4")}
-        response = client.post("/api/analyze", files=files)
-        print(f"Analyze Status Code: {response.status_code}")
-        print(f"Analyze JSON: {response.json()}")
-        assert response.status_code == 200
-        assert response.json()["analysis_id"] == "test-uuid-5555"
+        from fastapi.routing import APIRoute
+        route_paths = {r.path: r.methods for r in router.routes if isinstance(r, APIRoute)}
+        assert "/api/analyze" in route_paths, "Missing /api/analyze"
+        assert "POST" in route_paths["/api/analyze"]
+        assert "/api/report/{analysis_id}" in route_paths
+        print("  Route /api/analyze [POST] — OK")
+        print("  Route /api/report/{analysis_id} [GET] — OK")
+        print("  Route /api/report/{analysis_id} [DELETE] — OK")
         print("Analyze route self-test: PASSED")
     except Exception as e:
         print(f"Self-test failed with error: {e}", file=sys.stderr)

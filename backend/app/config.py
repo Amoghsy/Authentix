@@ -11,6 +11,12 @@ import os
 from pathlib import Path
 from typing import Set
 from pydantic import BaseModel, Field, ConfigDict
+from dotenv import load_dotenv
+
+# Load .env file from the project root automatically (if it exists).
+# Variables already set in the environment take precedence over .env values.
+_env_path = Path(__file__).resolve().parents[2] / ".env"
+load_dotenv(dotenv_path=_env_path, override=False)
 
 
 class Settings(BaseModel):
