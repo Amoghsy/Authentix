@@ -25,6 +25,10 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# Pre-generate matplotlib font cache to prevent startup block/hangs
+ENV MPLCONFIGDIR=/tmp/matplotlib
+RUN python -c "import matplotlib.font_manager"
+
 # Copy backend and AI code into the container
 COPY . .
 
