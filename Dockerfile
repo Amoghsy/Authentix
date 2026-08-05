@@ -4,6 +4,7 @@ FROM python:3.12-slim
 # Prevent Python from writing .pyc files and enable unbuffered logging
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
 # Install system dependencies required for OpenCV, FFmpeg, and PyTorch C++ extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
