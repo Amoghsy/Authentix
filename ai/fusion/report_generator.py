@@ -1,0 +1,608 @@
+"""
+report_generator.py
+
+This module contains the ReportGenerator class, which generates structured JSON,
+Markdown, and visually stunning responsive HTML reports representing the consolidated
+multimodal fusion deepfake assessments.
+"""
+
+from datetime import datetime
+import json
+import logging
+from pathlib import Path
+import sys
+from typing import Dict, Optional
+
+# Ensure project root is in path for direct execution
+project_root = str(Path(__file__).resolve().parents[2])
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+from ai.fusion.config import FusionConfig, get_default_config
+from ai.fusion.schemas import FusionResult
+
+logger = logging.getLogger(__name__)
+
+
+class ReportGenerator:
+    """
+    Handles generation and disk-writing of JSON, Markdown, and HTML reports for Fusion Engine.
+    """
+
+    def __init__(self, config: Optional[FusionConfig] = None):
+        """
+        Initializes the ReportGenerator.
+        """
+        self.config = config or get_default_config()
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+    def generate_reports(self, result: FusionResult, reference_id: str) -> Dict[str, Path]:
+        """
+        Generates and saves JSON, Markdown, and HTML reports to the output folder.
+        
+        Args:
+            result (FusionResult): The populated assessment output to document.
+            reference_id (str): Video name or unique target reference id.
+            
+        Returns:
+            Dict[str, Path]: Dict holding paths to the written files.
+        """
+        if self.config.reports is None:
+            raise ValueError("Reports configuration is not initialized in FusionConfig.")
+            
+        # Target output folder: output_dir / reference_id /
+        target_dir = self.config.reports.output_dir / reference_id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        
+        json_path = target_dir / self.config.reports.json_report_name
+        md_path = target_dir / self.config.reports.md_report_name
+        html_path = target_dir / self.config.reports.html_report_name
+        
+        # Write reports
+        self._write_json_report(result, json_path)
+        self._write_markdown_report(result, reference_id, md_path)
+        self._write_html_report(result, reference_id, html_path)
+        
+        self.logger.info(f"Report assets written successfully in folder: {target_dir}")
+        return {
+            "json": json_path,
+            "markdown": md_path,
+            "html": html_path
+        }
+
+    def _write_json_report(self, result: FusionResult, path: Path) -> None:
+        """Writes the raw JSON assessment serialization."""
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(result.to_json(indent=4))
+        self.logger.debug(f"JSON report saved to: {path}")
+
+    def _write_markdown_report(self, result: FusionResult, reference_id: str, path: Path) -> None:
+        """Generates a clean Markdown document summarizing the prediction."""
+        lines = [
+            f"# Authentix Multimodal Deepfake Assessment Report",
+            f"",
+            f"**Reference ID:** `{reference_id}`",
+            f"**Timestamp:** `{result.timestamp}`",
+            f"",
+            f"## Final Assessment Summary",
+            f"",
+            f"| Metric | Value |",
+            f"| :--- | :--- |",
+            f"| **Prediction Classification** | **{result.prediction.upper()}** |",
+            f"| **Joint Fusion Score** | `{result.fusion_score:.4f}` |",
+            f"| **Decision Confidence** | `{result.confidence:.4f}` |",
+            f"| **Threat Risk Level** | **{result.risk_level.upper()}** |",
+            f"",
+            f"## Modalities Score Breakdown",
+            f"",
+            f"| Modality | Score | Model Confidence |",
+            f"| :--- | :---: | :---: |",
+            f"| **Video AI** | `{result.video_score:.4f}` | `{result.execution_stats.get('video_weight', 0.50):.2f}` (Weight) |",
+            f"| **Audio AI** | `{result.audio_score:.4f}` | `{result.execution_stats.get('audio_weight', 0.30):.2f}` (Weight) |",
+            f"| **Lip Sync Detection** | `{result.lip_sync_score:.4f}` | `{result.execution_stats.get('lip_sync_weight', 0.20):.2f}` (Weight) |",
+            f"",
+            f"## Explainability Reasoning",
+            f"",
+        ]
+        
+        for reason in result.reasoning:
+            lines.append(f"- {reason}")
+            
+        lines.extend([
+            f"",
+            f"## Pipeline Execution Statistics",
+            f"",
+            f"- **Execution Time:** `{result.execution_stats.get('execution_time_ms', 0.0):.3f} ms`",
+            f"- **Raw Uncalibrated Score:** `{result.execution_stats.get('raw_fused_score', 0.0):.4f}`",
+            f"- **Decision Threshold:** `{result.execution_stats.get('decision_threshold', 0.50):.2f}`",
+            f"",
+            f"---",
+            f"*Report generated by Authentix Multimodal Fusion Intelligence Engine.*"
+        ])
+        
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines))
+        self.logger.debug(f"Markdown report saved to: {path}")
+
+    def _write_html_report(self, result: FusionResult, reference_id: str, path: Path) -> None:
+        """Generates a premium, responsive, styled HTML report with rich visual aesthetics."""
+        # Color mapping by risk level
+        risk = result.risk_level.upper()
+        if risk == "LOW":
+            color_class = "risk-low"
+            color_hex = "#2ea44f"
+        elif risk == "MEDIUM":
+            color_class = "risk-medium"
+            color_hex = "#dbab09"
+        elif risk == "HIGH":
+            color_class = "risk-high"
+            color_hex = "#f78166"
+        else:
+            color_class = "risk-critical"
+            color_hex = "#da3633"
+            
+        prediction = result.prediction.upper()
+        prediction_class = "pred-deepfake" if prediction == "DEEPFAKE" else "pred-authentic"
+        
+        # Build list items for reasoning
+        reasoning_html = ""
+        for reason in result.reasoning:
+            reasoning_html += f"<li>{reason}</li>"
+            
+        # Parse stats
+        stats = result.execution_stats
+        
+        html_template = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentix Deepfake Assessment Report</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Space+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {{
+            --bg-color: #0b0f19;
+            --panel-bg: rgba(17, 24, 39, 0.7);
+            --border-color: rgba(243, 244, 246, 0.1);
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            --accent-glow: rgba(99, 102, 241, 0.15);
+            --green: #2ea44f;
+            --yellow: #dbab09;
+            --orange: #f78166;
+            --red: #da3633;
+        }}
+
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+
+        body {{
+            background: linear-gradient(135deg, #070913 0%, #111827 100%);
+            font-family: 'Outfit', sans-serif;
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 40px 20px;
+        }}
+
+        .container {{
+            max-width: 850px;
+            width: 100%;
+            background: var(--panel-bg);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 0 0 40px var(--accent-glow);
+            overflow: hidden;
+        }}
+
+        /* Header section */
+        header {{
+            background: rgba(31, 41, 55, 0.4);
+            border-bottom: 1px solid var(--border-color);
+            padding: 30px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }}
+
+        .logo-area h1 {{
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            background: linear-gradient(90deg, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }}
+
+        .logo-area p {{
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 2px;
+        }}
+
+        .badge-risk {{
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            padding: 8px 16px;
+            border-radius: 12px;
+            border: 1px solid transparent;
+            box-shadow: 0 0 15px currentColor;
+        }}
+
+        .risk-low {{
+            color: var(--green);
+            background: rgba(46, 164, 79, 0.15);
+            border-color: rgba(46, 164, 79, 0.3);
+        }}
+
+        .risk-medium {{
+            color: var(--yellow);
+            background: rgba(219, 171, 9, 0.15);
+            border-color: rgba(219, 171, 9, 0.3);
+        }}
+
+        .risk-high {{
+            color: var(--orange);
+            background: rgba(247, 129, 102, 0.15);
+            border-color: rgba(247, 129, 102, 0.3);
+        }}
+
+        .risk-critical {{
+            color: var(--red);
+            background: rgba(218, 54, 51, 0.15);
+            border-color: rgba(218, 54, 51, 0.3);
+        }}
+
+        /* Content panels */
+        .content {{
+            padding: 40px;
+        }}
+
+        .dashboard-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 40px;
+        }}
+
+        @media (max-width: 600px) {{
+            .dashboard-grid {{
+                grid-template-columns: 1fr;
+            }}
+            header {{
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }}
+        }}
+
+        .metric-card {{
+            background: rgba(31, 41, 55, 0.3);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 25px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }}
+
+        .metric-title {{
+            font-size: 13px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }}
+
+        .pred-label {{
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 36px;
+            font-weight: 800;
+            margin-bottom: 5px;
+        }}
+
+        .pred-deepfake {{
+            color: var(--orange);
+            text-shadow: 0 0 10px rgba(247, 129, 102, 0.3);
+        }}
+
+        .pred-authentic {{
+            color: var(--green);
+            text-shadow: 0 0 10px rgba(46, 164, 79, 0.3);
+        }}
+
+        .metric-value {{
+            font-size: 40px;
+            font-weight: 800;
+            letter-spacing: -1px;
+        }}
+
+        .progress-container {{
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            height: 6px;
+            border-radius: 3px;
+            margin-top: 15px;
+            overflow: hidden;
+        }}
+
+        .progress-bar {{
+            height: 100%;
+            background: linear-gradient(90deg, #6366f1, #a855f7);
+            border-radius: 3px;
+            transition: width 1s ease-in-out;
+        }}
+
+        /* Table breakdown */
+        .section-title {{
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: var(--text-primary);
+            border-left: 3px solid #6366f1;
+            padding-left: 10px;
+        }}
+
+        table {{
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 40px;
+        }}
+
+        th {{
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            text-align: left;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+        }}
+
+        td {{
+            padding: 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            font-size: 15px;
+        }}
+
+        tr:last-child td {{
+            border-bottom: none;
+        }}
+
+        .modality-name {{
+            font-weight: 600;
+        }}
+
+        .score-num {{
+            font-family: 'Space Grotesk', sans-serif;
+            font-weight: 600;
+        }}
+
+        /* Explainability Reasoning */
+        .reasoning-panel {{
+            background: rgba(99, 102, 241, 0.04);
+            border: 1px dashed rgba(99, 102, 241, 0.2);
+            border-radius: 16px;
+            padding: 25px 30px;
+            margin-bottom: 40px;
+        }}
+
+        .reasoning-panel ul {{
+            list-style: none;
+        }}
+
+        .reasoning-panel li {{
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 12px;
+            color: #d1d5db;
+            position: relative;
+            padding-left: 20px;
+        }}
+
+        .reasoning-panel li:last-child {{
+            margin-bottom: 0;
+        }}
+
+        .reasoning-panel li::before {{
+            content: "•";
+            color: #818cf8;
+            font-weight: bold;
+            font-size: 18px;
+            position: absolute;
+            left: 0;
+            top: -2px;
+        }}
+
+        /* Footer execution metrics */
+        footer {{
+            background: rgba(31, 41, 55, 0.2);
+            border-top: 1px solid var(--border-color);
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }}
+
+        .footer-stats span {{
+            margin-right: 20px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo-area">
+                <h1>Authentix</h1>
+                <p>Reference: {reference_id}</p>
+            </div>
+            <div class="badge-risk {color_class}">
+                {risk} Risk
+            </div>
+        </header>
+
+        <div class="content">
+            <div class="dashboard-grid">
+                <div class="metric-card">
+                    <span class="metric-title">Consolidated Decision</span>
+                    <span class="pred-label {prediction_class}">{prediction}</span>
+                    <span class="metric-title" style="margin-top: 5px;">Confidence: {result.confidence:.2%}</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-title">Multimodal Fusion Score</span>
+                    <span class="metric-value">{result.fusion_score:.4f}</span>
+                    <div class="progress-container">
+                        <div class="progress-bar" style="width: {result.fusion_score * 100:.1f}%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <h2 class="section-title">Modality Calibration</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Modality Channel</th>
+                        <th>Risk Score</th>
+                        <th>Engine Influence</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="modality-name">Video AI Deepfake Classifier</td>
+                        <td class="score-num">{result.video_score:.4f}</td>
+                        <td>{stats.get('video_weight', 0.50):.1%} (Weight)</td>
+                    </tr>
+                    <tr>
+                        <td class="modality-name">Audio AI Deepfake Classifier</td>
+                        <td class="score-num">{result.audio_score:.4f}</td>
+                        <td>{stats.get('audio_weight', 0.30):.1%} (Weight)</td>
+                    </tr>
+                    <tr>
+                        <td class="modality-name">Lip Sync Mismatch Detector</td>
+                        <td class="score-num">{result.lip_sync_score:.4f}</td>
+                        <td>{stats.get('lip_sync_weight', 0.20):.1%} (Weight)</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h2 class="section-title">Explainability Feed</h2>
+            <div class="reasoning-panel">
+                <ul>
+                    {reasoning_html}
+                </ul>
+            </div>
+        </div>
+
+        <footer>
+            <div class="footer-stats">
+                <span>Execution: {stats.get('execution_time_ms', 0.0):.2f} ms</span>
+                <span>Threshold: {stats.get('decision_threshold', 0.50):.2f}</span>
+            </div>
+            <div>
+                <span>Timestamp: {result.timestamp}</span>
+            </div>
+        </footer>
+    </div>
+</body>
+</html>
+"""
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(html_template)
+        self.logger.debug(f"HTML report saved to: {path}")
+
+
+if __name__ == "__main__":
+    print("Executing self-test for fusion/report_generator.py...")
+    import tempfile
+    
+    # Setup test result
+    result_data = FusionResult(
+        prediction="Deepfake",
+        confidence=0.88,
+        video_score=0.95,
+        audio_score=0.20,
+        lip_sync_score=0.75,
+        fusion_score=0.685,
+        risk_level="High",
+        reasoning=[
+            "Visual manipulation probability is high.",
+            "Audio appears authentic.",
+            "Detected significant audio-video synchronization mismatch."
+        ],
+        execution_stats={
+            "execution_time_ms": 0.045,
+            "raw_fused_score": 0.685,
+            "video_weight": 0.50,
+            "audio_weight": 0.30,
+            "lip_sync_weight": 0.20,
+            "decision_threshold": 0.50
+        }
+    )
+    
+    from ai.fusion.config import ReportConfig, FusionConfig
+    
+    try:
+        # Override output directory to temporary folder for self-test using custom config
+        temp_dir = Path(tempfile.mkdtemp())
+        default_cfg = get_default_config()
+        temp_report_cfg = ReportConfig(output_dir=temp_dir)
+        temp_cfg = FusionConfig(
+            project_root=default_cfg.project_root,
+            fusion_root=default_cfg.fusion_root,
+            weights=default_cfg.weights,
+            thresholds=default_cfg.thresholds,
+            risk_levels=default_cfg.risk_levels,
+            logging=default_cfg.logging,
+            reports=temp_report_cfg
+        )
+        generator = ReportGenerator(temp_cfg)
+        
+        paths = generator.generate_reports(result_data, reference_id="synthetic_test_report")
+        print(f"Generated report paths:\n{paths}")
+        
+        # Verify JSON
+        assert paths["json"].exists()
+        with open(paths["json"], "r", encoding="utf-8") as f:
+            data = json.load(f)
+            assert data["prediction"] == "Deepfake"
+            assert data["risk_level"] == "High"
+            
+        # Verify Markdown
+        assert paths["markdown"].exists()
+        with open(paths["markdown"], "r", encoding="utf-8") as f:
+            content = f.read()
+            assert "# Authentix Multimodal Deepfake Assessment Report" in content
+            assert "Visual manipulation probability is high." in content
+            
+        # Verify HTML
+        assert paths["html"].exists()
+        with open(paths["html"], "r", encoding="utf-8") as f:
+            html = f.read()
+            assert "Authentix Deepfake Assessment Report" in html
+            assert "HIGH Risk" in html
+            assert "DEEPFAKE" in html
+            
+        # Cleanup
+        for path in paths.values():
+            if path.exists():
+                path.unlink()
+        paths["json"].parent.rmdir()
+        temp_dir.rmdir()
+        
+        print("All self-tests completed successfully.")
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
