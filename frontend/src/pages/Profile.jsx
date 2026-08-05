@@ -382,7 +382,8 @@ export default function Profile() {
       className="min-h-screen flex flex-col"
       style={{ backgroundColor: c.bg, color: c.text, fontFamily: 'Geist, sans-serif' }}
     >
-      <Header />
+      {/* Header — no account button when showing the sign-in form */}
+      <Header mode={user ? 'default' : 'none'} />
 
       <main className="flex-1 flex items-center justify-center px-4 py-24">
         <div

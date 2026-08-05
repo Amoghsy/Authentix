@@ -152,16 +152,18 @@ def calibrate_fusion_result(
     
     calibrated_confidence = raw_conf * (1.0 - penalty)
     
-    # 4. Optional score calibration:
-    # If the consensus is low (variance is high) but one of the primary channels (video or audio)
-    # has extremely high score and confidence, we calibrate the score slightly higher to ensure
-    # we flag potential high-confidence attacks.
+    # 4. Single-modality threat calibration:
+    # If ANY modality (video, audio, or lip_sync) detects a strong deepfake signal (score > 0.70),
+    # calibrate the fused score upward so that single-channel attacks (e.g. voice cloning or face swaps)
+    # are correctly flagged as Deepfakes instead of being averaged down to Authentic.
     calibrated_score = fused_score
-    if (video.score > 0.95 and video.confidence > 0.85) or (audio.score > 0.95 and audio.confidence > 0.85):
-        # Slightly boost score towards the maximum prediction to avoid missing high-risk deepfakes
-        max_score = max(video.score, audio.score)
-        calibrated_score = 0.7 * fused_score + 0.3 * max_score
-        logger.debug(f"High-confidence modality threat detected. Calibrated score from {fused_score:.4f} to {calibrated_score:.4f}")
+    max_modal_score = max(video.score, audio.score, lip_sync.score)
+    if max_modal_score > 0.70:
+        calibrated_score = max(fused_score, 0.40 * fused_score + 0.60 * max_modal_score)
+        logger.debug(
+            f"High-confidence modality threat detected ({max_modal_score:.4f}). "
+            f"Calibrated score from {fused_score:.4f} to {calibrated_score:.4f}"
+        )
         
     return clamp(calibrated_score), clamp(calibrated_confidence)
 

@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import Sidebar from '../components/Sidebar'
+import AppLayout from '../components/AppLayout'
 import { useDetection } from '../context/DetectionContext'
 
 /* ── helpers ── */
@@ -35,38 +35,32 @@ export default function AnalysisResults() {
   // If no result available, show empty state
   if (!result) {
     return (
-      <div
-        className="flex h-screen overflow-hidden"
-        style={{ backgroundColor: '#09090b', color: '#fafafa', fontFamily: 'Geist, sans-serif' }}
-      >
-        <Sidebar />
-        <main className="flex-1 overflow-y-auto p-6 md:p-8 flex items-center justify-center" style={{ backgroundColor: '#09090b' }}>
+      <AppLayout mainClassName="p-6 md:p-8">
+        <div className="flex items-center justify-center h-full">
           <div className="flex flex-col items-center gap-6 text-center max-w-md">
             <div
               className="w-20 h-20 rounded-full flex items-center justify-center"
-              style={{ background: '#121215', border: '1px solid #27272a' }}
+              style={{ background: '#111113', border: '1px solid #1f1f23' }}
             >
               <span className="material-symbols-outlined text-4xl" style={{ color: '#3f3f46' }}>analytics</span>
             </div>
             <div>
-              <h2 className="text-2xl font-bold mb-2" style={{ color: '#fafafa' }}>No Analysis Results</h2>
+              <h2 className="text-2xl font-bold mb-2">No Analysis Results</h2>
               <p className="text-sm" style={{ color: '#71717a' }}>
                 Upload and analyze a video first to see the detection results here.
               </p>
             </div>
             <button
               onClick={() => navigate('/detect')}
-              className="flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-colors"
-              style={{ background: '#a78bfa', color: '#0a0012' }}
-              onMouseEnter={e => e.currentTarget.style.background = '#c4b5fd'}
-              onMouseLeave={e => e.currentTarget.style.background = '#a78bfa'}
+              className="flex items-center gap-2 px-6 py-3 rounded-lg font-semibold transition-all duration-200 hover:opacity-90 active:scale-95"
+              style={{ background: '#7c3aed', color: '#fff' }}
             >
               <span className="material-symbols-outlined text-lg">upload_file</span>
               Go to Detection
             </button>
           </div>
-        </main>
-      </div>
+        </div>
+      </AppLayout>
     )
   }
 
@@ -113,14 +107,8 @@ export default function AnalysisResults() {
   ]
 
   return (
-    <div
-      className="flex h-screen overflow-hidden"
-      style={{ backgroundColor: '#09090b', color: '#fafafa', fontFamily: 'Geist, sans-serif' }}
-    >
-      <Sidebar />
-
-      <main className="flex-1 overflow-y-auto p-6 md:p-8" style={{ backgroundColor: '#09090b' }}>
-        <div className="max-w-7xl mx-auto flex flex-col gap-6">
+    <AppLayout mainClassName="p-6 md:p-8">
+      <div className="max-w-7xl mx-auto flex flex-col gap-6">
 
           {/* ── Page header ── */}
           <div className="flex justify-between items-end">
@@ -360,7 +348,6 @@ export default function AnalysisResults() {
           </div>
 
         </div>
-      </main>
-    </div>
+    </AppLayout>
   )
 }

@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import Sidebar from '../components/Sidebar'
-import Header from '../components/Header'
+import AppLayout from '../components/AppLayout'
 import { useDetection, normalizeResult } from '../context/DetectionContext'
 import { useAuth } from '../context/AuthContext'
 import { detectVideo } from '../lib/api'
@@ -135,55 +134,36 @@ export default function RealTimeDetection() {
   // Enforce authentication
   if (!user) {
     return (
-      <div className="flex h-screen overflow-hidden" style={{ backgroundColor: '#09090b', color: '#fafafa', fontFamily: 'Geist, sans-serif' }}>
-        <Sidebar />
-        <div className="flex-1 flex flex-col">
-          <Header />
-          <main className="flex-1 flex items-center justify-center p-6 pt-20">
-            <div className="max-w-md w-full p-8 rounded-2xl text-center space-y-6" style={{ background: '#121215', border: '1px solid #27272a', boxShadow: '0 25px 50px rgba(0,0,0,0.5)' }}>
-              <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center" style={{ background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)' }}>
-                <span className="material-symbols-outlined text-3xl" style={{ color: '#a78bfa' }}>lock</span>
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold tracking-tight mb-2">Authentication Required</h2>
-                <p className="text-sm" style={{ color: '#a1a1aa' }}>
-                  You must sign in or create an account to use the multimodal fusion deepfake detection engine.
-                </p>
-              </div>
-              <button
-                onClick={() => navigate('/profile')}
-                className="w-full py-3 rounded-lg font-semibold tracking-wide transition-all duration-200"
-                style={{ background: '#a78bfa', color: '#0a0012' }}
-              >
-                Go to Login / Profile
-              </button>
+      <AppLayout>
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="max-w-md w-full p-8 rounded-2xl text-center space-y-6" style={{ background: '#111113', border: '1px solid #1f1f23', boxShadow: '0 25px 50px rgba(0,0,0,0.5)' }}>
+            <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center" style={{ background: 'rgba(167,139,250,0.1)', border: '1px solid rgba(167,139,250,0.2)' }}>
+              <span className="material-symbols-outlined text-3xl" style={{ color: '#a78bfa' }}>lock</span>
             </div>
-          </main>
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight mb-2">Authentication Required</h2>
+              <p className="text-sm" style={{ color: '#71717a' }}>
+                You must sign in or create an account to use the multimodal fusion deepfake detection engine.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/profile')}
+              className="w-full py-3 rounded-lg font-semibold tracking-wide transition-all duration-200 hover:opacity-90"
+              style={{ background: '#7c3aed', color: '#fff' }}
+            >
+              Sign In
+            </button>
+          </div>
         </div>
-      </div>
+      </AppLayout>
     )
   }
 
   return (
-    <div
-      className="flex h-screen overflow-hidden"
-      style={{ backgroundColor: '#09090b', color: '#fafafa', fontFamily: 'Geist, sans-serif' }}
-    >
-      <Sidebar />
-
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        <Header />
-        <main className="flex-1 flex flex-col h-full relative overflow-hidden pt-14">
-        {/* Mobile top bar */}
-        <header
-          className="md:hidden fixed top-0 w-full z-50 flex justify-between items-center px-6 py-3 border-b border-zinc-800"
-          style={{ background: 'rgba(9,9,11,0.8)', backdropFilter: 'blur(12px)' }}
-        >
-          <span className="text-xl font-bold tracking-tighter text-violet-400">Authentix</span>
-        </header>
+    <AppLayout>
 
         {/* Scrollable canvas */}
-        <div className="flex-1 overflow-y-auto p-6 md:p-10 mt-16 md:mt-0">
+        <div className="flex-1 overflow-y-auto p-6 md:p-10">
           <div className="max-w-6xl mx-auto h-full flex flex-col lg:flex-row gap-8">
 
             {/* Left column: Video preview + controls */}
@@ -543,15 +523,6 @@ export default function RealTimeDetection() {
             </div>
           </div>
         </div>
-      </main>
-
-      <style>{`
-        @keyframes scan {
-          0%, 100% { transform: translateY(-30px); opacity: 0.4; }
-          50% { transform: translateY(30px); opacity: 1; }
-        }
-      `}</style>
-      </div>
-    </div>
+      </AppLayout>
   )
 }

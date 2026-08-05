@@ -1,45 +1,38 @@
 import { Link, useLocation } from 'react-router-dom'
-import { useTheme } from '../context/ThemeContext'
 
 const navLinks = [
-  { label: 'Detect',    to: '/detect',   icon: 'videocam' },
-  { label: 'Analysis',  to: '/analysis', icon: 'analytics' },
-  { label: 'Reports',   to: '/reports',  icon: 'description' },
-  { label: 'History',   to: '/history',  icon: 'history' },
+  { label: 'Detect',   to: '/detect',   icon: 'videocam' },
+  { label: 'Analysis', to: '/analysis', icon: 'analytics' },
+  { label: 'Reports',  to: '/reports',  icon: 'description' },
+  { label: 'History',  to: '/history',  icon: 'history' },
 ]
 
 export default function Sidebar() {
   const location = useLocation()
-  const { c, theme, toggle } = useTheme()
 
   return (
     <nav
-      className="hidden md:flex flex-col h-screen w-64 shrink-0 py-6 transition-colors duration-300"
+      className="hidden md:flex flex-col h-screen w-64 shrink-0 py-6"
       style={{
-        background: c.bgMid,
-        borderRight: `1px solid ${c.border}`,
+        backgroundColor: '#0a0a0d',
+        borderRight: '1px solid #1f1f23',
+        fontFamily: 'Geist, sans-serif',
       }}
     >
-      {/* Logo */}
-      <div className="px-6 mb-8">
+      {/* Brand */}
+      <div className="px-5 mb-8">
         <div className="flex items-center gap-3">
           <div
-            className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden"
-            style={{ background: 'linear-gradient(135deg,#7c3aed,#a78bfa)', border: `1px solid ${c.border}` }}
+            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+            style={{ background: 'linear-gradient(135deg, #7c3aed, #a78bfa)' }}
           >
-            <span className="material-symbols-outlined text-white text-lg">shield</span>
+            <span className="material-symbols-outlined text-white" style={{ fontSize: '18px' }}>shield</span>
           </div>
           <div>
-            <h2
-              className="font-bold tracking-tight text-lg leading-none"
-              style={{ color: c.primary }}
-            >
+            <h2 className="font-bold tracking-tight text-sm leading-none text-violet-400">
               Authentix
             </h2>
-            <span
-              className="text-xs uppercase tracking-wider font-semibold"
-              style={{ color: c.textDim }}
-            >
+            <span className="text-[10px] uppercase tracking-wider font-medium text-zinc-600">
               Deepfake Guard
             </span>
           </div>
@@ -47,80 +40,64 @@ export default function Sidebar() {
       </div>
 
       {/* Nav links */}
-      <div className="flex-1 px-4 space-y-1 overflow-y-auto">
+      <div className="flex-1 px-3 space-y-0.5 overflow-y-auto">
         {navLinks.map((link) => {
           const isActive = location.pathname === link.to
           return (
             <Link
               key={link.label}
               to={link.to}
-              className="flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150"
               style={isActive ? {
-                background: c.surfaceHigh,
-                color: c.primary,
-                fontWeight: 600,
-                borderRight: `2px solid ${c.primary}`,
+                background: 'rgba(167,139,250,0.12)',
+                color: '#a78bfa',
               } : {
-                color: c.textDim,
+                color: '#71717a',
               }}
-              onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = c.surfaceHigh; e.currentTarget.style.color = c.textMuted } }}
-              onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = c.textDim } }}
+              onMouseEnter={e => {
+                if (!isActive) {
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.04)'
+                  e.currentTarget.style.color = '#a1a1aa'
+                }
+              }}
+              onMouseLeave={e => {
+                if (!isActive) {
+                  e.currentTarget.style.background = 'transparent'
+                  e.currentTarget.style.color = '#71717a'
+                }
+              }}
             >
               <span
-                className="material-symbols-outlined text-xl"
-                style={isActive ? { fontVariationSettings: "'FILL' 1" } : {}}
+                className="material-symbols-outlined shrink-0"
+                style={{
+                  fontSize: '20px',
+                  fontVariationSettings: isActive ? "'FILL' 1" : "'FILL' 0",
+                }}
               >
                 {link.icon}
               </span>
-              <span>{link.label}</span>
+              <span className="truncate">{link.label}</span>
+
+              {/* Active pip */}
+              {isActive && (
+                <span
+                  className="ml-auto w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ background: '#a78bfa' }}
+                />
+              )}
             </Link>
           )
         })}
       </div>
 
-      {/* Theme toggle + CTA */}
-      <div className="px-6 mt-auto space-y-3">
-        {/* Theme toggle */}
-        <button
-          onClick={toggle}
-          className="w-full flex items-center justify-between px-4 py-2.5 rounded-lg transition-colors duration-200"
-          style={{ background: c.surface, border: `1px solid ${c.border}`, color: c.textMuted }}
-          onMouseEnter={e => e.currentTarget.style.borderColor = c.primary}
-          onMouseLeave={e => e.currentTarget.style.borderColor = c.border}
-        >
-          <div className="flex items-center gap-2">
-            <span className="material-symbols-outlined text-base" style={{ color: c.primary }}>
-              {theme === 'dark' ? 'light_mode' : 'dark_mode'}
-            </span>
-            <span className="text-xs font-medium">
-              {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-            </span>
-          </div>
-          {/* Toggle pill */}
-          <div
-            className="w-10 h-5 rounded-full relative transition-colors duration-300 flex items-center"
-            style={{ background: theme === 'dark' ? c.primary : c.border }}
-          >
-            <div
-              className="w-4 h-4 rounded-full absolute transition-all duration-300"
-              style={{
-                background: '#fff',
-                left: theme === 'dark' ? '22px' : '2px',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-              }}
-            />
-          </div>
-        </button>
-
-        {/* New Scan */}
+      {/* Bottom CTA */}
+      <div className="px-4 mt-4 pt-4" style={{ borderTop: '1px solid #1f1f23' }}>
         <Link
           to="/detect"
-          className="w-full py-3 rounded-lg font-semibold flex items-center justify-center gap-2 transition-colors duration-200"
-          style={{ background: c.primary, color: '#fff' }}
-          onMouseEnter={e => e.currentTarget.style.opacity = '0.9'}
-          onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+          className="flex items-center justify-center gap-2 w-full py-2.5 rounded-lg text-sm font-semibold transition-all duration-200 hover:opacity-90 active:scale-[0.98]"
+          style={{ background: '#7c3aed', color: '#fff' }}
         >
-          <span className="material-symbols-outlined text-lg">add_circle</span>
+          <span className="material-symbols-outlined" style={{ fontSize: '18px' }}>add_circle</span>
           New Scan
         </Link>
       </div>

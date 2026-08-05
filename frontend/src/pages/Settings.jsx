@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import Sidebar from '../components/Sidebar'
+import AppLayout from '../components/AppLayout'
 import { useTheme } from '../context/ThemeContext'
 
 function Section({ title, icon, children, c }) {
@@ -81,12 +81,8 @@ export default function Settings() {
   )
 
   return (
-    <div className="flex h-screen overflow-hidden transition-colors duration-300"
-      style={{ backgroundColor: c.bg, color: c.text, fontFamily: 'Geist, sans-serif' }}>
-      <Sidebar />
-
-      <main className="flex-1 overflow-y-auto p-6 md:p-8">
-        <div className="max-w-3xl mx-auto flex flex-col gap-6">
+    <AppLayout mainClassName="p-6 md:p-8">
+      <div className="max-w-3xl mx-auto flex flex-col gap-6">
 
           {/* Page header */}
           <div>
@@ -275,7 +271,6 @@ export default function Settings() {
           </div>
 
         </div>
-      </main>
-    </div>
+    </AppLayout>
   )
 }
