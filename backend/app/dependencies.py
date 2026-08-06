@@ -53,35 +53,12 @@ def get_audio_predictor():
     """
     global _audio_predictor
     if _audio_predictor is None:
+        from ai.audio.inference.config import InferenceConfig as AudioConfig
+        from ai.audio.inference.predictor import AudioPredictor
+        logger.info("Initializing singleton AudioPredictor ONNX session...")
         settings = get_settings()
-        if settings.LOW_MEMORY:
-            logger.info("Initializing mock AudioPredictor for low-memory environment...")
-            class MockAudioPredictor:
-                def predict(self, wav_path):
-                    import os
-                    filename = os.path.basename(str(wav_path)).lower()
-                    if "fake" in filename or "mismatch" in filename:
-                        fake_prob = 0.82
-                        prediction = "Fake"
-                        confidence = 0.85
-                    else:
-                        fake_prob = 0.08
-                        prediction = "Real"
-                        confidence = 0.91
-                    return {
-                        "prediction": prediction,
-                        "confidence": confidence,
-                        "fake_probability": fake_prob,
-                        "real_probability": 1.0 - fake_prob,
-                        "latency_ms": 12.5
-                    }
-            _audio_predictor = MockAudioPredictor()
-        else:
-            from ai.audio.inference.config import InferenceConfig as AudioConfig
-            from ai.audio.inference.predictor import AudioPredictor
-            logger.info("Initializing singleton AudioPredictor ONNX session...")
-            audio_cfg = AudioConfig(model_path=settings.AUDIO_MODEL_PATH, device=settings.DEVICE)
-            _audio_predictor = AudioPredictor(audio_cfg)
+        audio_cfg = AudioConfig(model_path=settings.AUDIO_MODEL_PATH, device=settings.DEVICE)
+        _audio_predictor = AudioPredictor(audio_cfg)
     return _audio_predictor
 
 

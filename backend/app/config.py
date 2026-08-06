@@ -54,9 +54,6 @@ class Settings(BaseModel):
     
     # Model Configurations
     DEVICE: str = Field(default_factory=lambda: os.getenv("AUTHENTIX_DEVICE", "cuda"))
-    LOW_MEMORY: bool = Field(
-        default_factory=lambda: os.getenv("LOW_MEMORY", "false").lower() == "true"
-    )
     
     # CORS Origins Configurations
     CORS_ORIGINS: list[str] = Field(
