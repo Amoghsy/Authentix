@@ -34,11 +34,14 @@ def get_video_predictor():
     """
     global _video_predictor
     if _video_predictor is None:
-        from ai.video.inference.config import InferenceConfig as VideoConfig
+        from ai.video.inference.config import InferenceConfig as VideoConfig, ONNXConfig as VideoONNXConfig
         from ai.video.inference.predictor import VideoPredictor
         logger.info("Initializing singleton VideoPredictor ONNX session...")
         settings = get_settings()
-        video_cfg = VideoConfig(model_path=settings.VIDEO_MODEL_PATH)
+        video_cfg = VideoConfig(
+            model_path=settings.VIDEO_MODEL_PATH,
+            onnx=VideoONNXConfig(device=settings.DEVICE)
+        )
         _video_predictor = VideoPredictor(video_cfg)
     return _video_predictor
 
@@ -54,9 +57,10 @@ def get_audio_predictor():
         from ai.audio.inference.predictor import AudioPredictor
         logger.info("Initializing singleton AudioPredictor ONNX session...")
         settings = get_settings()
-        audio_cfg = AudioConfig(model_path=settings.AUDIO_MODEL_PATH)
+        audio_cfg = AudioConfig(model_path=settings.AUDIO_MODEL_PATH, device=settings.DEVICE)
         _audio_predictor = AudioPredictor(audio_cfg)
     return _audio_predictor
+
 
 
 def get_sync_preprocessor():

@@ -9,8 +9,6 @@ import logging
 from pathlib import Path
 import sys
 from fastapi import APIRouter, Depends
-import onnxruntime as ort
-import torch
 
 # Ensure project root is in path for direct execution
 project_root = str(Path(__file__).resolve().parents[3])
@@ -30,6 +28,9 @@ def health_check(settings: Settings = Depends(get_settings)) -> HealthResponse:
     """
     Returns the backend service health status, GPU state, and ONNX engine configurations.
     """
+    import onnxruntime as ort
+    import torch
+    
     logger.info("Ingesting health check lookup request...")
     
     # 1. Resolve GPU availability

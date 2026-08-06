@@ -42,44 +42,57 @@ async def lifespan(app: FastAPI):
         4. Initialize database tables (create_all for dev convenience)
         5. Warm up AI ONNX model singleton sessions
     """
+    import os
     settings = get_settings()
 
-    # 1. Logging setup
+    # STEP 1: Logging setup
+    print("[DIAGNOSTIC] STEP 1: Configuring logging...")
     configure_logging(settings)
-    logger.info("Starting up Authentix FastAPI backend...")
+    logger.info("[DIAGNOSTIC] STEP 1: SUCCESS. Logging configured.")
 
     try:
-        # 2. Workspace directories
+        # STEP 2: Workspace directories
+        logger.info("[DIAGNOSTIC] STEP 2: Setting up workspace directories...")
         setup_app_directories(settings)
+        logger.info("[DIAGNOSTIC] STEP 2: SUCCESS. Workspace directories set up.")
 
-        # 3. Validate ONNX model files exist (warn only — don't crash if missing)
+        # STEP 3: Validate ONNX model files exist (warn only — don't crash if missing)
+        logger.info("[DIAGNOSTIC] STEP 3: Validating model files existence...")
         try:
             validate_settings(settings)
+            logger.info("[DIAGNOSTIC] STEP 3: SUCCESS. Model files validated.")
         except FileNotFoundError as model_err:
             logger.warning(
-                f"AI model file not found: {model_err}. "
+                f"[DIAGNOSTIC] STEP 3: WARNING. Model files validation warning: {model_err}. "
                 "Inference endpoints will be unavailable until model files are provided."
             )
 
-        # 4. Create database tables if they don't exist yet (dev mode check)
+        # STEP 4: Create database tables if they don't exist yet (dev mode check)
         #    In production, use Alembic migrations instead.
-        try:
-            from backend.app.database.session import engine
-            from backend.app.database.base import Base
-            import backend.app.database.models  # noqa: F401 — registers all ORM models
+        logger.info("[DIAGNOSTIC] STEP 4: Verifying database tables...")
+        if not os.getenv("RENDER"):
+            try:
+                from backend.app.database.session import engine
+                from backend.app.database.base import Base
+                import backend.app.database.models  # noqa: F401 — registers all ORM models
 
-            async with engine.begin() as conn:
-                await conn.run_sync(Base.metadata.create_all)
-            logger.info("Database tables verified / created.")
-        except Exception as db_err:
-            logger.warning(
-                f"Database tables verification skipped or failed: {db_err}. "
-                "Ensure Alembic migrations have run successfully."
+                async with engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+                logger.info("[DIAGNOSTIC] STEP 4: SUCCESS. Database tables verified/created (dev mode).")
+            except Exception as db_err:
+                logger.warning(
+                    f"[DIAGNOSTIC] STEP 4: WARNING. Database tables verification skipped or failed: {db_err}. "
+                    "Ensure Alembic migrations have run successfully."
+                )
+        else:
+            logger.info(
+                "[DIAGNOSTIC] STEP 4: SUCCESS. Running on Render (production). "
+                "Bypassing dev-mode database creation (Alembic handles migrations)."
             )
 
-        # 5. Skip AI warmup at startup to speed up deployment and port binding
+        # STEP 5: Skip AI warmup at startup to speed up deployment and port binding
         logger.info(
-            "Skipping AI warm-up during startup. "
+            "[DIAGNOSTIC] STEP 5: SUCCESS. Skipping AI warm-up during startup. "
             "Models will be lazily initialized on first request."
         )
 

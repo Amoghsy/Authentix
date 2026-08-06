@@ -9,13 +9,15 @@ Changes from Part 5:
   - DELETE /api/report/{analysis_id} now requires authentication
 """
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 import sys
 import time
 import uuid
 import logging
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import JSONResponse
@@ -34,14 +36,16 @@ from backend.app.models.response_models import (
     LipSyncModelResponse,
     FusionModelResponse
 )
-from backend.app.services.upload_service import UploadService
-from backend.app.services.video_service import VideoService
-from backend.app.services.audio_service import AudioService
-from backend.app.services.lipsync_service import LipSyncService
-from backend.app.services.fusion_service import FusionService
-from backend.app.services.report_service import ReportService
-from backend.app.services.analysis_service import AnalysisService
 from backend.app.utils.cleanup import cleanup_session_temp_files
+
+if TYPE_CHECKING:
+    from backend.app.services.upload_service import UploadService
+    from backend.app.services.video_service import VideoService
+    from backend.app.services.audio_service import AudioService
+    from backend.app.services.lipsync_service import LipSyncService
+    from backend.app.services.fusion_service import FusionService
+    from backend.app.services.report_service import ReportService
+    from backend.app.services.analysis_service import AnalysisService
 from backend.app.auth.dependencies import (
     get_current_user,
     get_client_ip,
@@ -60,10 +64,12 @@ router = APIRouter()
 # AI Service dependency helpers (unchanged from Part 5)
 # ---------------------------------------------------------------------------
 def get_upload_service(settings: Settings = Depends(get_settings)) -> UploadService:
+    from backend.app.services.upload_service import UploadService
     return UploadService(settings)
 
 
 def get_video_service(predictor=Depends(deps.get_video_predictor)) -> VideoService:
+    from backend.app.services.video_service import VideoService
     return VideoService(predictor)
 
 
@@ -71,6 +77,7 @@ def get_audio_service(
     predictor=Depends(deps.get_audio_predictor),
     settings: Settings = Depends(get_settings)
 ) -> AudioService:
+    from backend.app.services.audio_service import AudioService
     return AudioService(predictor, settings)
 
 
@@ -78,14 +85,17 @@ def get_lipsync_service(
     preprocessor=Depends(deps.get_sync_preprocessor),
     settings: Settings = Depends(get_settings)
 ) -> LipSyncService:
+    from backend.app.services.lipsync_service import LipSyncService
     return LipSyncService(preprocessor, settings)
 
 
 def get_fusion_service(predictor=Depends(deps.get_fusion_predictor)) -> FusionService:
+    from backend.app.services.fusion_service import FusionService
     return FusionService(predictor)
 
 
 def get_report_service(settings: Settings = Depends(get_settings)) -> ReportService:
+    from backend.app.services.report_service import ReportService
     return ReportService(settings)
 
 
@@ -152,6 +162,7 @@ async def analyze_video_endpoint(
 
         # 8. Persist analysis result to database under the authenticated user
         report_dir = str(settings.REPORTS_DIR / analysis_id)
+        from backend.app.services.analysis_service import AnalysisService
         analysis_svc = AnalysisService(db)
         await analysis_svc.persist_analysis(
             user=current_user,
