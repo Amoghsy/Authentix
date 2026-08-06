@@ -58,7 +58,7 @@ class Settings(BaseModel):
     # CORS Origins Configurations
     CORS_ORIGINS: list[str] = Field(
         default_factory=lambda: [
-            origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000").split(",") if origin.strip()
+            origin.strip() for origin in os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,https://authentix-deepfake.vercel.app").split(",") if origin.strip()
         ]
     )
     
