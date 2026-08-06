@@ -52,7 +52,9 @@ target_metadata = Base.metadata
 # ---------------------------------------------------------------------------
 from backend.app.config import get_settings as _get_settings
 _settings = _get_settings()
-config.set_main_option("sqlalchemy.url", _settings.DATABASE_URL)
+# Escape % characters for ConfigParser interpolation
+_db_url = _settings.DATABASE_URL.replace("%", "%%")
+config.set_main_option("sqlalchemy.url", _db_url)
 
 
 # ---------------------------------------------------------------------------
