@@ -7,6 +7,7 @@ for the Authentix FastAPI backend.
 
 from pathlib import Path
 import sys
+import uuid
 from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
@@ -24,7 +25,11 @@ settings = get_settings()
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,  # Set to True for debugging SQL statement traces in development
-    future=True
+    future=True,
+    connect_args={
+        "prepared_statement_cache_size": 0,
+        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4()}__",
+    }
 )
 
 # Async session maker
