@@ -57,7 +57,6 @@ logs/
 *.pt
 *.pth
 *.h5
-*.onnx
 ai/models/
 datasets/
 dataset/
