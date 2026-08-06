@@ -3,7 +3,14 @@
  * Connects directly to the backend through the Vite proxy.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api'
+let base = import.meta.env.VITE_API_BASE_URL || '/api'
+if (base.startsWith('http')) {
+  base = base.replace(/\/+$/, '')
+  if (!base.endsWith('/api')) {
+    base = `${base}/api`
+  }
+}
+const API_BASE = base
 
 export function clearAuthTokens() {
   localStorage.removeItem('ax_access_token')
