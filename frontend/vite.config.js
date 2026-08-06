@@ -8,6 +8,11 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
+    headers: {
+      // Required for SharedArrayBuffer (used by FFmpeg WASM)
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',
@@ -18,5 +23,8 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  optimizeDeps: {
+    exclude: ['@ffmpeg/ffmpeg', '@ffmpeg/util'],
   },
 })

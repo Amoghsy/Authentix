@@ -4,6 +4,7 @@ import AppLayout from '../components/AppLayout'
 import { useDetection, normalizeResult } from '../context/DetectionContext'
 import { useAuth } from '../context/AuthContext'
 import { detectVideo } from '../lib/api'
+import { compressVideo, shouldCompress, formatFileSize } from '../lib/compressor'
 
 export default function RealTimeDetection() {
   const navigate = useNavigate()
@@ -19,9 +20,11 @@ export default function RealTimeDetection() {
   } = useDetection()
 
   const [selectedFile, setSelectedFile] = useState(null)
+  const [compressedFile, setCompressedFile] = useState(null)
   const [preview, setPreview] = useState(null)
   const [dragOver, setDragOver] = useState(false)
-  const [phase, setPhase] = useState('idle') // idle | uploading | processing | done | error
+  const [phase, setPhase] = useState('idle') // idle | compressing | uploading | processing | done | error
+  const [compressionProgress, setCompressionProgress] = useState(0)
 
   // If user logs out during this page, clean file select
   useEffect(() => {
@@ -39,8 +42,10 @@ export default function RealTimeDetection() {
       return
     }
     setSelectedFile(file)
+    setCompressedFile(null)
     setError(null)
     setPhase('idle')
+    setCompressionProgress(0)
 
     // Generate video thumbnail preview
     const url = URL.createObjectURL(file)
@@ -69,10 +74,35 @@ export default function RealTimeDetection() {
     setIsAnalyzing(true)
     setError(null)
     setProgress(0)
-    setPhase('uploading')
+    setCompressionProgress(0)
 
     try {
-      const rawResult = await detectVideo(selectedFile, (pct) => {
+      // ── Step 1: Compress if needed ──────────────────────────────────────
+      let fileToUpload = selectedFile
+
+      if (shouldCompress(selectedFile, 30)) {
+        setPhase('compressing')
+        try {
+          const compressed = await compressVideo(selectedFile, {
+            targetSizeMB: 30,
+            maxWidth: 1280,
+            crf: 28,
+            audioBitrate: 64,
+            onProgress: (pct) => setCompressionProgress(pct),
+          })
+          setCompressedFile(compressed)
+          fileToUpload = compressed
+        } catch (comprErr) {
+          // Compression failed — fall back to original file with a warning
+          console.warn('Compression failed, uploading original:', comprErr)
+          setError('Compression failed — uploading original file instead.')
+          setTimeout(() => setError(null), 4000)
+        }
+      }
+
+      // ── Step 2: Upload ──────────────────────────────────────────────────
+      setPhase('uploading')
+      const rawResult = await detectVideo(fileToUpload, (pct) => {
         setProgress(pct)
         if (pct >= 100) {
           setPhase('processing')
@@ -100,15 +130,18 @@ export default function RealTimeDetection() {
 
   const resetState = useCallback(() => {
     setSelectedFile(null)
+    setCompressedFile(null)
     setPreview(null)
     setError(null)
     setProgress(0)
+    setCompressionProgress(0)
     setPhase('idle')
     if (preview) URL.revokeObjectURL(preview)
   }, [preview, setError, setProgress])
 
   const phaseLabel = {
     idle: 'Ready to Scan',
+    compressing: `Compressing… ${compressionProgress}%`,
     uploading: `Uploading… ${progress}%`,
     processing: 'Running AI Pipeline…',
     done: 'Analysis Complete ✓',
@@ -117,6 +150,7 @@ export default function RealTimeDetection() {
 
   const phaseColor = {
     idle: '#34d399',
+    compressing: '#f59e0b',
     uploading: '#a78bfa',
     processing: '#f59e0b',
     done: '#34d399',
@@ -234,6 +268,36 @@ export default function RealTimeDetection() {
                   />
                 )}
 
+                {/* Compressing overlay */}
+                {phase === 'compressing' && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center"
+                    style={{ background: 'rgba(9,9,11,0.85)', backdropFilter: 'blur(8px)' }}
+                  >
+                    {/* Animated compression ring */}
+                    <div className="relative w-20 h-20 mb-4">
+                      <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
+                        <circle cx="40" cy="40" r="34" fill="none" stroke="#27272a" strokeWidth="6" />
+                        <circle
+                          cx="40" cy="40" r="34" fill="none"
+                          stroke="#f59e0b" strokeWidth="6"
+                          strokeDasharray={`${2 * Math.PI * 34}`}
+                          strokeDashoffset={`${2 * Math.PI * 34 * (1 - compressionProgress / 100)}`}
+                          strokeLinecap="round"
+                          style={{ transition: 'stroke-dashoffset 0.3s ease-out' }}
+                        />
+                      </svg>
+                      <span className="absolute inset-0 flex items-center justify-center text-sm font-bold" style={{ color: '#f59e0b' }}>
+                        {compressionProgress}%
+                      </span>
+                    </div>
+                    <p className="text-sm font-bold mb-1" style={{ color: '#fafafa' }}>Compressing Video…</p>
+                    <p className="text-xs" style={{ color: '#71717a' }}>FFmpeg WASM • Reducing file size before upload</p>
+                    <p className="text-xs mt-1 font-mono" style={{ color: '#52525b' }}>
+                      {formatFileSize(selectedFile.size)} → ~30 MB
+                    </p>
+                  </div>
+                )}
+
                 {/* Scanning overlay */}
                 {(phase === 'processing') && (
                   <div
@@ -275,6 +339,20 @@ export default function RealTimeDetection() {
                         MP4, MOV, AVI, WebM • Max 200MB
                       </p>
                     </div>
+                  </div>
+                )}
+
+                {/* Compression progress bar */}
+                {phase === 'compressing' && (
+                  <div className="absolute bottom-0 left-0 right-0 h-1.5 z-20" style={{ background: '#121215' }}>
+                    <div
+                      className="h-full transition-all duration-300 ease-out"
+                      style={{
+                        width: `${compressionProgress}%`,
+                        background: 'linear-gradient(to right, #d97706, #f59e0b)',
+                        boxShadow: '0 0 12px rgba(245,158,11,0.5)',
+                      }}
+                    />
                   </div>
                 )}
 
@@ -339,6 +417,11 @@ export default function RealTimeDetection() {
                     <span>MODALITIES: 3</span>
                     <span>PIPELINE: v1.0</span>
                     <span>ENGINE: Fusion</span>
+                    {compressedFile && (
+                      <span style={{ color: '#34d399' }}>
+                        COMPRESSED ↓{Math.round((1 - compressedFile.size / selectedFile.size) * 100)}%
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
@@ -416,9 +499,31 @@ export default function RealTimeDetection() {
                   <span className="material-symbols-outlined text-xl" style={{ color: '#a78bfa' }}>movie</span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate" style={{ color: '#fafafa' }}>{selectedFile.name}</p>
-                    <p className="text-xs" style={{ color: '#71717a' }}>
-                      {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB • {selectedFile.type || 'video'}
-                    </p>
+                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                      {compressedFile ? (
+                        <>
+                          <span className="text-xs line-through" style={{ color: '#52525b' }}>
+                            {formatFileSize(selectedFile.size)}
+                          </span>
+                          <span className="text-xs font-semibold" style={{ color: '#34d399' }}>
+                            → {formatFileSize(compressedFile.size)}
+                          </span>
+                          <span
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                            style={{ background: 'rgba(52,211,153,0.1)', color: '#34d399', border: '1px solid rgba(52,211,153,0.2)' }}
+                          >
+                            -{Math.round((1 - compressedFile.size / selectedFile.size) * 100)}% saved
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-xs" style={{ color: '#71717a' }}>
+                          {formatFileSize(selectedFile.size)} • {selectedFile.type || 'video'}
+                          {shouldCompress(selectedFile, 30) && (
+                            <span className="ml-2" style={{ color: '#f59e0b' }}>⚡ Will compress before upload</span>
+                          )}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {!isAnalyzing && (
                     <button
@@ -460,7 +565,7 @@ export default function RealTimeDetection() {
                 <div>
                   <h3 className="text-sm font-semibold mb-1" style={{ color: '#fafafa' }}>Upload Video</h3>
                   <p className="text-xs" style={{ color: '#a1a1aa' }}>
-                    Drag and drop MP4 or MOV files here to analyze pre-recorded footage.
+                    Drag and drop MP4 or MOV files here. Large files are auto-compressed in the browser before upload.
                   </p>
                 </div>
                 <button
