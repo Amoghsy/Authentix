@@ -66,7 +66,7 @@ class VideoConfig:
         default_factory=lambda: {".mp4", ".avi", ".mov", ".mkv"}
     )
     min_duration: float = 0.2  # 5 frames at 25 fps minimum required duration
-    max_duration: Optional[float] = None
+    max_duration: Optional[float] = 1.5
     min_resolution: Tuple[int, int] = (128, 128)  # Minimum (Width, Height)
 
 

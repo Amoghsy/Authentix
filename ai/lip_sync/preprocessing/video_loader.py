@@ -174,6 +174,8 @@ class VideoLoader:
                 # We calculate timestamps for output frames to align audio-video sequences.
                 # Example: for target_fps = 25.0, frames occur at 0.0s, 0.04s, 0.08s, etc.
                 duration_sec = metadata.duration
+                if self.config.video.max_duration is not None:
+                    duration_sec = min(duration_sec, self.config.video.max_duration)
                 num_output_frames = int(duration_sec * target_fps)
                 
                 for step in range(num_output_frames):
