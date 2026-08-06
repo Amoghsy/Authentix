@@ -57,10 +57,13 @@ def register_middleware(app: FastAPI) -> None:
     """
     Registers the CORS policy and latency measuring middleware onto the FastAPI app instance.
     """
+    from backend.app.config import get_settings
+    settings = get_settings()
+    
     # 1. Setup CORS middleware
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # Restrict this to target origins in production if required
+        allow_origins=settings.CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
