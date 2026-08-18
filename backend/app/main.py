@@ -37,10 +37,9 @@ async def lifespan(app: FastAPI):
     Manages application startup and shutdown lifecycles.
     Order:
         1. Configure logging
-        2. Setup workspace directories
-        3. Validate model file assets
-        4. Initialize database tables (create_all for dev convenience)
-        5. Warm up AI ONNX model singleton sessions
+        2. Setup workspace directories & validate configuration settings
+        3. Verify database tables (dev mode)
+        4. Warm up local Fusion Engine and HF client
     """
     import os
     settings = get_settings()
@@ -51,25 +50,14 @@ async def lifespan(app: FastAPI):
     logger.info("[DIAGNOSTIC] STEP 1: SUCCESS. Logging configured.")
 
     try:
-        # STEP 2: Workspace directories
-        logger.info("[DIAGNOSTIC] STEP 2: Setting up workspace directories...")
+        # STEP 2: Workspace directories and settings validation
+        logger.info("[DIAGNOSTIC] STEP 2: Setting up workspace directories and settings...")
         setup_app_directories(settings)
-        logger.info("[DIAGNOSTIC] STEP 2: SUCCESS. Workspace directories set up.")
+        validate_settings(settings)
+        logger.info(f"[DIAGNOSTIC] STEP 2: SUCCESS. Configured HF Inference URL: {settings.HF_INFERENCE_URL}")
 
-        # STEP 3: Validate ONNX model files exist (warn only — don't crash if missing)
-        logger.info("[DIAGNOSTIC] STEP 3: Validating model files existence...")
-        try:
-            validate_settings(settings)
-            logger.info("[DIAGNOSTIC] STEP 3: SUCCESS. Model files validated.")
-        except FileNotFoundError as model_err:
-            logger.warning(
-                f"[DIAGNOSTIC] STEP 3: WARNING. Model files validation warning: {model_err}. "
-                "Inference endpoints will be unavailable until model files are provided."
-            )
-
-        # STEP 4: Create database tables if they don't exist yet (dev mode check)
-        #    In production, use Alembic migrations instead.
-        logger.info("[DIAGNOSTIC] STEP 4: Verifying database tables...")
+        # STEP 3: Create database tables if they don't exist yet (dev mode check)
+        logger.info("[DIAGNOSTIC] STEP 3: Verifying database tables...")
         if not os.getenv("RENDER"):
             try:
                 from backend.app.database.session import engine
@@ -78,23 +66,23 @@ async def lifespan(app: FastAPI):
 
                 async with engine.begin() as conn:
                     await conn.run_sync(Base.metadata.create_all)
-                logger.info("[DIAGNOSTIC] STEP 4: SUCCESS. Database tables verified/created (dev mode).")
+                logger.info("[DIAGNOSTIC] STEP 3: SUCCESS. Database tables verified/created (dev mode).")
             except Exception as db_err:
                 logger.warning(
-                    f"[DIAGNOSTIC] STEP 4: WARNING. Database tables verification skipped or failed: {db_err}. "
+                    f"[DIAGNOSTIC] STEP 3: WARNING. Database tables verification skipped or failed: {db_err}. "
                     "Ensure Alembic migrations have run successfully."
                 )
         else:
             logger.info(
-                "[DIAGNOSTIC] STEP 4: SUCCESS. Running on Render (production). "
+                "[DIAGNOSTIC] STEP 3: SUCCESS. Running on Render (production). "
                 "Bypassing dev-mode database creation (Alembic handles migrations)."
             )
 
-        # STEP 5: Skip AI warmup at startup to speed up deployment and port binding
-        logger.info(
-            "[DIAGNOSTIC] STEP 5: SUCCESS. Skipping AI warm-up during startup. "
-            "Models will be lazily initialized on first request."
-        )
+        # STEP 4: Warm up local Fusion Engine and HF client singleton
+        logger.info("[DIAGNOSTIC] STEP 4: Warming up local Fusion Engine...")
+        from backend.app.dependencies import warm_up_services
+        warm_up_services()
+        logger.info("[DIAGNOSTIC] STEP 4: SUCCESS. Fusion Engine warmed up.")
 
         logger.info("Authentix backend startup complete. Service is ready.")
         yield
@@ -102,6 +90,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.critical(f"Startup failed: {e}", exc_info=True)
         raise e
+
 
     finally:
         # Dispose the engine connection pool on shutdown

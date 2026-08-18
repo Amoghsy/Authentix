@@ -26,34 +26,23 @@ router = APIRouter()
 @router.get("/health", response_model=HealthResponse)
 def health_check(settings: Settings = Depends(get_settings)) -> HealthResponse:
     """
-    Returns the backend service health status, GPU state, and ONNX engine configurations.
+    Returns the backend service health status and Hugging Face AI service integration status.
     """
-    import onnxruntime as ort
-    import torch
-    
     logger.info("Ingesting health check lookup request...")
     
-    # 1. Resolve GPU availability
-    gpu_available = False
-    available_providers = ort.get_available_providers()
-    if "CUDAExecutionProvider" in available_providers and torch.cuda.is_available():
-        gpu_available = True
-        
-    # 2. Check loaded model singletons
     models_state = {
-        "video": deps._video_predictor is not None,
-        "audio": deps._audio_predictor is not None,
-        "lip_sync": deps._sync_preprocessor is not None,
-        "fusion": deps._fusion_predictor is not None
+        "fusion": deps._fusion_predictor is not None,
+        "hf_client": deps._hf_client is not None
     }
     
     return HealthResponse(
         status="healthy",
         device=settings.DEVICE,
-        gpu_available=gpu_available,
-        onnx_runtime_version=ort.__version__,
+        gpu_available=False,
+        onnx_runtime_version="External HF Service",
         models_loaded=models_state
     )
+
 
 
 if __name__ == "__main__":

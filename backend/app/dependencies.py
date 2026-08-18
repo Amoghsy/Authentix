@@ -2,8 +2,8 @@
 dependencies.py
 
 This module manages singleton dependencies for the Authentix FastAPI backend.
-It lazily instantiates and caches VideoPredictor, AudioPredictor, SyncPreprocessor,
-and FusionEngine instances, reusing them across request sessions to prevent high reloading latency.
+It lazily instantiates and caches the HFInferenceClient and FusionEngine instances,
+reusing them across request sessions to prevent high reloading latency.
 """
 
 import logging
@@ -17,64 +17,25 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from backend.app.config import get_settings
+from backend.app.services.hf_inference_client import HFInferenceClient
 
 logger = logging.getLogger("backend.dependencies")
 
 # Singleton caching variables
-_video_predictor = None
-_audio_predictor = None
-_sync_preprocessor = None
+_hf_client: Optional[HFInferenceClient] = None
 _fusion_predictor = None
 
 
-def get_video_predictor():
+def get_hf_client() -> HFInferenceClient:
     """
-    Returns a cached or newly initialized VideoPredictor instance.
-    Reuses the underlying ONNX Runtime session.
+    Returns a cached HFInferenceClient instance.
     """
-    global _video_predictor
-    if _video_predictor is None:
-        from ai.video.inference.config import InferenceConfig as VideoConfig, ONNXConfig as VideoONNXConfig
-        from ai.video.inference.predictor import VideoPredictor
-        logger.info("Initializing singleton VideoPredictor ONNX session...")
+    global _hf_client
+    if _hf_client is None:
+        logger.info("Initializing singleton HFInferenceClient...")
         settings = get_settings()
-        video_cfg = VideoConfig(
-            model_path=settings.VIDEO_MODEL_PATH,
-            onnx=VideoONNXConfig(device=settings.DEVICE)
-        )
-        _video_predictor = VideoPredictor(video_cfg)
-    return _video_predictor
-
-
-def get_audio_predictor():
-    """
-    Returns a cached or newly initialized AudioPredictor instance.
-    Reuses the underlying ONNX Runtime session.
-    """
-    global _audio_predictor
-    if _audio_predictor is None:
-        from ai.audio.inference.config import InferenceConfig as AudioConfig
-        from ai.audio.inference.predictor import AudioPredictor
-        logger.info("Initializing singleton AudioPredictor ONNX session...")
-        settings = get_settings()
-        audio_cfg = AudioConfig(model_path=settings.AUDIO_MODEL_PATH, device=settings.DEVICE)
-        _audio_predictor = AudioPredictor(audio_cfg)
-    return _audio_predictor
-
-
-
-def get_sync_preprocessor():
-    """
-    Returns a cached or newly initialized SyncPreprocessor instance.
-    """
-    global _sync_preprocessor
-    if _sync_preprocessor is None:
-        from ai.lip_sync.preprocessing.sync_preprocessor import SyncPreprocessor
-        from ai.lip_sync.preprocessing.config import get_default_config as get_lipsync_config
-        logger.info("Initializing singleton SyncPreprocessor instance...")
-        lipsync_cfg = get_lipsync_config()
-        _sync_preprocessor = SyncPreprocessor(lipsync_cfg)
-    return _sync_preprocessor
+        _hf_client = HFInferenceClient(settings)
+    return _hf_client
 
 
 def get_fusion_predictor():
@@ -110,78 +71,36 @@ def get_fusion_predictor():
 
 def warm_up_services() -> None:
     """
-    Eagerly instantiates all AI and Fusion singletons on server start
-    to warm up ONNX Runtime sessions and prevent first-request latency spikes.
+    Eagerly instantiates Fusion Engine on server startup.
+    No local AI models are loaded on Render.
     """
-    logger.info("Warming up backend AI model sessions...")
-    settings = get_settings()
-    
-    # Check video model existence
-    if not settings.VIDEO_MODEL_PATH.exists():
-        logger.warning(f"Video model file missing at {settings.VIDEO_MODEL_PATH}. Skipping video predictor warm-up.")
-    else:
-        try:
-            get_video_predictor()
-        except Exception as e:
-            logger.error(f"Failed to warm up video predictor: {e}")
-
-    # Check audio model existence
-    if not settings.AUDIO_MODEL_PATH.exists():
-        logger.warning(f"Audio model file missing at {settings.AUDIO_MODEL_PATH}. Skipping audio predictor warm-up.")
-    else:
-        try:
-            get_audio_predictor()
-        except Exception as e:
-            logger.error(f"Failed to warm up audio predictor: {e}")
-
-    # Check face landmarker task file existence to avoid blocking downloads on startup
-    if not settings.FACE_LANDMARKER_PATH.exists():
-        logger.warning(f"Face landmarker task file missing at {settings.FACE_LANDMARKER_PATH}. Skipping sync preprocessor warm-up.")
-    else:
-        try:
-            get_sync_preprocessor()
-        except Exception as e:
-            logger.error(f"Failed to warm up sync preprocessor: {e}")
-
-    # Initialize fusion predictor
+    logger.info("Warming up backend Fusion Engine...")
     try:
         get_fusion_predictor()
+        get_hf_client()
     except Exception as e:
-        logger.error(f"Failed to warm up fusion predictor: {e}")
-        
+        logger.error(f"Failed to warm up backend services: {e}")
     logger.info("Backend services warm-up completed.")
 
 
 if __name__ == "__main__":
     print("Executing self-test for backend/app/dependencies.py...")
-    # Setup test logging
     logging.basicConfig(level=logging.INFO)
     try:
-        # Eager warm up and cache assertions
         warm_up_services()
-        
-        v1 = get_video_predictor()
-        v2 = get_video_predictor()
-        assert v1 is v2
-        print("VideoPredictor singleton check: PASSED")
-        
-        a1 = get_audio_predictor()
-        a2 = get_audio_predictor()
-        assert a1 is a2
-        print("AudioPredictor singleton check: PASSED")
-        
-        s1 = get_sync_preprocessor()
-        s2 = get_sync_preprocessor()
-        assert s1 is s2
-        print("SyncPreprocessor singleton check: PASSED")
-        
+        client1 = get_hf_client()
+        client2 = get_hf_client()
+        assert client1 is client2
+        print("HFInferenceClient singleton check: PASSED")
+
         f1 = get_fusion_predictor()
         f2 = get_fusion_predictor()
         assert f1 is f2
         print("FusionPredictor singleton check: PASSED")
-        
+
         print("All self-tests completed successfully: PASSED")
     except Exception as e:
         import traceback
         traceback.print_exc()
         sys.exit(1)
+

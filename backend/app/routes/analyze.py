@@ -40,9 +40,7 @@ from backend.app.utils.cleanup import cleanup_session_temp_files
 
 if TYPE_CHECKING:
     from backend.app.services.upload_service import UploadService
-    from backend.app.services.video_service import VideoService
-    from backend.app.services.audio_service import AudioService
-    from backend.app.services.lipsync_service import LipSyncService
+    from backend.app.services.hf_inference_client import HFInferenceClient
     from backend.app.services.fusion_service import FusionService
     from backend.app.services.report_service import ReportService
     from backend.app.services.analysis_service import AnalysisService
@@ -68,25 +66,8 @@ def get_upload_service(settings: Settings = Depends(get_settings)) -> UploadServ
     return UploadService(settings)
 
 
-def get_video_service(predictor=Depends(deps.get_video_predictor)) -> VideoService:
-    from backend.app.services.video_service import VideoService
-    return VideoService(predictor)
-
-
-def get_audio_service(
-    predictor=Depends(deps.get_audio_predictor),
-    settings: Settings = Depends(get_settings)
-) -> AudioService:
-    from backend.app.services.audio_service import AudioService
-    return AudioService(predictor, settings)
-
-
-def get_lipsync_service(
-    preprocessor=Depends(deps.get_sync_preprocessor),
-    settings: Settings = Depends(get_settings)
-) -> LipSyncService:
-    from backend.app.services.lipsync_service import LipSyncService
-    return LipSyncService(preprocessor, settings)
+def get_hf_client(client=Depends(deps.get_hf_client)):
+    return client
 
 
 def get_fusion_service(predictor=Depends(deps.get_fusion_predictor)) -> FusionService:
@@ -100,26 +81,23 @@ def get_report_service(settings: Settings = Depends(get_settings)) -> ReportServ
 
 
 # ---------------------------------------------------------------------------
-# POST /api/analyze  [UPDATED: requires JWT, persists results to DB]
+# POST /api/analyze  [UPDATED: Uses HF Inference Service + local Fusion Engine]
 # ---------------------------------------------------------------------------
 @router.post("/api/analyze", response_model=AnalysisResponse)
 async def analyze_video_endpoint(
     request: Request,
     file: UploadFile = File(...),
     upload_service: UploadService = Depends(get_upload_service),
-    video_service: VideoService = Depends(get_video_service),
-    audio_service: AudioService = Depends(get_audio_service),
-    lipsync_service: LipSyncService = Depends(get_lipsync_service),
+    hf_client=Depends(get_hf_client),
     fusion_service: FusionService = Depends(get_fusion_service),
     settings: Settings = Depends(get_settings),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_role("Admin", "Researcher", "User"))
 ) -> AnalysisResponse:
     """
-    Accepts a video upload, runs the full AI deepfake detection pipeline
-    (Video AI → Audio AI → Lip Sync → Fusion Engine), persists the result
-    to the database under the authenticated user's history, and returns
-    the unified analysis response.
+    Accepts a video upload, delegates AI model inference to the Hugging Face AI Service,
+    runs the local Fusion Engine on returned predictions, persists the result to PostgreSQL,
+    and returns the unified analysis response.
 
     Authentication: Bearer JWT token required.
     """
@@ -135,18 +113,14 @@ async def analyze_video_endpoint(
     try:
         # 1. Validate and save upload securely to disk
         saved_path = await upload_service.upload_video(file)
-        original_filename = file.filename or saved_path.name
 
-        # 2. Execute Video AI
-        video_prediction = await video_service.analyze_video(saved_path)
+        # 2. Call Hugging Face AI Service for model inference
+        video_prediction, audio_prediction, lipsync_prediction = await hf_client.predict_all(
+            media_path=saved_path,
+            request_id=analysis_id
+        )
 
-        # 3. Execute Audio AI (extract WAV + classify)
-        audio_prediction = await audio_service.analyze_audio(saved_path, analysis_id)
-
-        # 4. Execute Lip Sync preprocessing
-        lipsync_prediction = await lipsync_service.analyze_lipsync(saved_path, analysis_id)
-
-        # 5. Execute Fusion Engine + generate report files
+        # 3. Execute local Fusion Engine + generate report files
         fusion_result = await fusion_service.fuse_predictions(
             video_pred=video_prediction,
             audio_pred=audio_prediction,
@@ -154,13 +128,13 @@ async def analyze_video_endpoint(
             analysis_id=analysis_id
         )
 
-        # 6. Compute processing time
+        # 4. Compute processing time
         processing_time_ms = (time.perf_counter() - start_time) * 1000.0
 
-        # 7. Clean up intermediate temp files
+        # 5. Clean up intermediate temp files
         cleanup_session_temp_files(analysis_id, settings)
 
-        # 8. Persist analysis result to database under the authenticated user
+        # 6. Persist analysis result to database under the authenticated user
         report_dir = str(settings.REPORTS_DIR / analysis_id)
         from backend.app.services.analysis_service import AnalysisService
         analysis_svc = AnalysisService(db)

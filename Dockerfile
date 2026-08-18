@@ -1,19 +1,13 @@
-# Authentix Backend & AI Inference Production Dockerfile
+# Authentix FastAPI Backend Production Dockerfile (Render Target)
 FROM python:3.12-slim
 
-# Prevent Python from writing .pyc files and enable unbuffered logging
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 ENV AUTHENTIX_DEVICE=cpu
 
-# Install system dependencies required for OpenCV, FFmpeg, and PyTorch C++ extensions
+# System dependencies required for PostgreSQL client, curl, git
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    libgl1 \
-    libglib2.0-0 \
-    libsm6 \
-    libxext6 \
     build-essential \
     curl \
     git \
@@ -21,22 +15,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Upgrade pip and copy requirements
+# Upgrade pip and install lightweight backend requirements
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Pre-generate matplotlib font cache to prevent startup block/hangs
+# Pre-generate matplotlib font cache
 ENV MPLCONFIGDIR=/tmp/matplotlib
 RUN python -c "import matplotlib.font_manager"
 
-# Copy backend and AI code into the container
+# Copy backend workspace into container
 COPY . .
 
-# Create persistent upload and temp directories
+# Create runtime directories
 RUN mkdir -p backend/uploads backend/temp backend/reports
 
-# Expose default port
 EXPOSE 8000
 
 # Start command: Apply database migrations and launch Uvicorn

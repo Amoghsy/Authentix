@@ -63,3 +63,10 @@ dataset/
 
 # Jupyter Notebooks
 .ipynb_checkpoints
+
+# Agent config with secrets
+.agents/
+
+# Backend runtime dirs
+backend/reports/
+backend/uploads/

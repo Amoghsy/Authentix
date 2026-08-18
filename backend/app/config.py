@@ -82,15 +82,15 @@ class Settings(BaseModel):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
-    # Absolute paths to completed AI models inside workspace
-    VIDEO_MODEL_PATH: Path = Field(
-        default_factory=lambda: Path(__file__).resolve().parents[2] / "ai" / "video" / "exports" / "deepfake_model.onnx"
+    # External Hugging Face AI Inference Service Configurations
+    HF_INFERENCE_URL: str = Field(
+        default_factory=lambda: os.getenv("HF_INFERENCE_URL", "http://localhost:7860")
     )
-    AUDIO_MODEL_PATH: Path = Field(
-        default_factory=lambda: Path(__file__).resolve().parents[2] / "exports" / "audio_model.onnx"
+    HF_INFERENCE_API_KEY: str = Field(
+        default_factory=lambda: os.getenv("HF_INFERENCE_API_KEY", "")
     )
-    FACE_LANDMARKER_PATH: Path = Field(
-        default_factory=lambda: Path(__file__).resolve().parents[2] / "ai" / "lip_sync" / "checkpoints" / "face_landmarker.task"
+    HF_INFERENCE_TIMEOUT: float = Field(
+        default_factory=lambda: float(os.getenv("HF_INFERENCE_TIMEOUT", "120.0"))
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -120,19 +120,13 @@ def setup_app_directories(settings: Settings) -> None:
 
 def validate_settings(settings: Settings) -> None:
     """
-    Validates model paths and folder settings on startup.
+    Validates backend configuration settings on startup.
+    Ensures runtime directories exist and logs the configured HF Inference URL.
     """
-    # Verify Video model
-    if not settings.VIDEO_MODEL_PATH.exists():
-        raise FileNotFoundError(f"Video AI Model not found at: {settings.VIDEO_MODEL_PATH.resolve()}")
-    
-    # Verify Audio model
-    if not settings.AUDIO_MODEL_PATH.exists():
-        raise FileNotFoundError(f"Audio AI Model not found at: {settings.AUDIO_MODEL_PATH.resolve()}")
+    setup_app_directories(settings)
+    if not settings.HF_INFERENCE_URL:
+        raise ValueError("HF_INFERENCE_URL must be configured.")
 
-    # Verify Face Landmarker task model
-    if not settings.FACE_LANDMARKER_PATH.exists():
-        raise FileNotFoundError(f"Face Landmarker model not found at: {settings.FACE_LANDMARKER_PATH.resolve()}")
 
 
 if __name__ == "__main__":
